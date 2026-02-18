@@ -12,7 +12,7 @@ pd.set_option('future.no_silent_downcasting', True)
 # ----------------------------
 # FILE UPLOAD
 # ----------------------------
-uploaded_file = st.file_uploader("Upload your CSV file", type=["csv"])
+uploaded_file = r"C:\Users\Staff\Downloads\Freshmen Applications\Applicants Freshmen (2) - Applicants Freshmen (2).csv.csv"
 
 if uploaded_file is not None:
 
@@ -284,3 +284,4 @@ if len(hs_data) >= 2:
 
     st.write(f"📊 Estimated Applicant Growth: {app_growth*100:.2f}%")
     st.write(f"🎓 Estimated Enrolled Growth: {enroll_growth*100:.2f}%")
+
