@@ -2,156 +2,123 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
+from pymongo import MongoClient
 
 st.set_page_config(layout="wide")
 st.title("📊 Recruitment Analytics Dashboard")
 
-pd.set_option('future.no_silent_downcasting', True)
+
+client = MongoClient(st.secrets["MONGO_URI"])
+db = client["test"]  
+collections = db.list_collection_names()
+selected_collection = st.selectbox("Select Collection", collections)
 
 
-uploaded_file = st.file_uploader("Upload your CSV file", type=["csv"])
-if uploaded_file is not None:
-    # Safe to access uploaded_file.name
-    filename = uploaded_file.name.lower()
+df = pd.DataFrame(list(db[selected_collection].find()))
 
-    if "transfer" in filename:
-        is_transfer = True
-    else:
-        is_transfer = False
-
-    if is_transfer:
-
-        field_map = {
-            "school": "LAST_COL_UGRD_DESCR",
-            "term": "ADMIT_TERM",
-            "admitted": "admitted",
-            "matriculated": "matriculated",
-            "enrolled": "enrolled",
-            "gpa": "Coll_GPA",
-            "program": "Department",
-            "city": "Coll_City",
-            "state": "Coll_State",
-            # no 'type' field
-        }
-    else:
-
-        field_map = {
-            "school": "HS_Name",
-            "term": "ADMIT_TERM",
-            "admitted": "admitted",
-            "matriculated": "matriculated",
-            "enrolled": "enrolled",
-            "gpa": "HS_GPA",
-            "program": "Department",
-            "city": "HS_City",
-            "state": "HS_State",
-            "type": "HS_Type"  
-        }
-
-
-
-
-if uploaded_file is not None:
-    df = pd.read_csv(uploaded_file)
-    pd.set_option('future.no_silent_downcasting', True)
-
-
-    
-    # ----------------------------
-    # TUITION AND SEMESTER LOSS
-    # ----------------------------
-    TUITION_PER_SEM = 3465
-    semesters_lost_map = {
-        1229: 7, 1232: 6, 1239: 5, 1242: 4, 1249: 3, 1252: 2, 1259: 1
-    }
-
-    df['semesters_lost'] = df[field_map['term']].map(semesters_lost_map)
+if df.empty:
+    st.warning("This collection is empty!")
+else:
+    st.success(f"Loaded {len(df)} records from `{selected_collection}` collection.")
 
  
-    df[field_map['admitted']] = df[field_map['admitted']].replace({"Y":1,"N":0}).astype(int)
-    df[field_map['matriculated']] = df[field_map['matriculated']].replace({"Y":1,"N":0}).astype(int)
-    df[field_map['enrolled']] = df[field_map['enrolled']].replace({"Y":1,"N":0}).astype(int)
-    if 'gpa' in field_map:
-        df[field_map['gpa']] = df[field_map['gpa']].astype(float)
+    if selected_collection == 'Freshmen':  # Freshman CSV
+        field_map = {
+            "name": "HS_Name",
+            "type": "HS_Type",
+            "city": "HS_City",
+            "state": "HS_State",
+            "gpa": "HS_GPA",
+            "admitted": "admitted",
+            "matriculated": "matriculated",
+            "enrolled": "enrolled",
+            "department": "Department",
+            "term": "ADMIT_TERM"
+        }
+    else:  
+        field_map = {
+            "name": "LAST_COL_UGRD_DESCR", 
+            "city": "Coll_City",
+            "state": "Coll_State",
+            "gpa": "Coll_GPA",
+            "admitted": "admitted",
+            "matriculated": "matriculated",
+            "enrolled": "enrolled",
+            "department": "Department",
+            "term": "ADMIT_TERM"
+        }
+
+ 
+    for key, val in list(field_map.items()):
+        if val not in df.columns:
+            st.warning(f"Column `{val}` not found in this collection; skipping mapping.")
+            field_map.pop(key)
 
     # ----------------------------
-    # MONEY LOST
+    #  METRICS
     # ----------------------------
-    df['money_lost'] = (
-        (df[field_map['admitted']] - df[field_map['enrolled']]) *
-        df['semesters_lost'] * TUITION_PER_SEM
-    )
+    TUITION_PER_SEM = 3465
+    semesters_lost_map = {1229:7,1232:6,1239:5,1242:4,1249:3,1252:2,1259:1}
 
-   
-    applicant_counts = df.groupby(field_map['school']).size().rename('applicants')
+    if field_map.get("term"):
+        df['semesters_lost'] = df[field_map["term"]].map(semesters_lost_map)
 
-    hs_groupby_fields = [field_map['school'], field_map['city'], field_map['state']]
-    if 'type' in field_map and field_map['type'] in df.columns:
-        hs_groupby_fields.insert(1, field_map['type']) 
+    
+    for col in ["admitted","matriculated","enrolled"]:
+        if field_map.get(col) and field_map[col] in df.columns:
+            df[field_map[col]] = df[field_map[col]].replace({"Y":1,"N":0}).astype(int)
 
-    hs = (
-        df.groupby(hs_groupby_fields)
-          .agg(
-              admitted=(field_map['admitted'], 'sum'),
-              matriculated=(field_map['matriculated'], 'sum'),
-              enrolled=(field_map['enrolled'], 'sum'),
-              HS_quality=(field_map.get('gpa', field_map['admitted']), 'mean'),
-              most_common_program=(field_map['program'], lambda x: x.mode()[0] if not x.mode().empty else None),
-              money_lost=('money_lost', 'sum')
-          )
-          .join(applicant_counts, on=field_map['school'])
-          .reset_index()
-    )
+    # Money lost
+    df['money_lost'] = (df[field_map["admitted"]] - df[field_map["enrolled"]]) * df['semesters_lost'] * TUITION_PER_SEM
 
-    # ----------------------------
-    # RATIOS AND BAYESIAN METRICS
-    # ----------------------------
-    hs['yield'] = hs['enrolled'] / hs['admitted']
-    hs['specific_yield'] = hs['enrolled'] / hs['matriculated']
-    hs['ROI'] = hs['enrolled'] / hs['applicants']
+    # Aggregate by school
+    group_cols = [field_map.get("name"), field_map.get("city"), field_map.get("state")]
+    agg_dict = {
+        field_map.get("admitted"): "sum",
+        field_map.get("matriculated"): "sum",
+        field_map.get("enrolled"): "sum",
+        field_map.get("gpa"): "mean",
+        "money_lost": "sum"
+    }
+
+    if field_map.get("department"):
+        agg_dict[field_map["department"]] = lambda x: x.mode()[0] if not x.mode().empty else None
+
+    applicant_counts = df.groupby(field_map.get("name")).size().rename("applicants")
+
+    hs = df.groupby(group_cols).agg(agg_dict).join(applicant_counts, on=field_map.get("name")).reset_index()
+
+    # Ratios
+    hs['yield'] = hs[field_map["enrolled"]] / hs[field_map["admitted"]]
+    hs['specific_yield'] = hs[field_map["enrolled"]] / hs[field_map["matriculated"]]
+    hs['ROI'] = hs[field_map["enrolled"]] / hs['applicants']
     hs.replace([np.inf, -np.inf], np.nan, inplace=True)
 
-    global_roi = hs['enrolled'].sum() / hs['applicants'].sum()
+    # Bayesian ROI
+    global_roi = hs[field_map["enrolled"]].sum() / hs['applicants'].sum()
     k = 5
-    hs['bayes_ROI'] = (hs['enrolled'] + global_roi*k) / (hs['applicants'] + k)
+    hs['bayes_ROI'] = (hs[field_map["enrolled"]] + global_roi*k) / (hs['applicants'] + k)
 
     # ----------------------------
     # YIELD INCREASE SIMULATION
     # ----------------------------
     st.sidebar.header("⚙ Yield Simulation")
-    relative_increase = st.sidebar.slider("Increase Yield (%)", 0, 50, 10) / 100
+    relative_increase = st.sidebar.slider("Increase Yield (%)", 0, 50, 10)/100
 
-    semester_yield = (
-        df.groupby([field_map['school'], field_map['term']])
-          .agg(
-              admitted=(field_map['admitted'],'sum'),
-              enrolled=(field_map['enrolled'],'sum'),
-              semesters_lost=('semesters_lost','first')
-          )
-          .reset_index()
-    )
-    semester_yield = semester_yield[semester_yield['admitted'] > 0]
+    semester_yield = df.groupby([field_map.get("name"), field_map.get("term")]).agg(
+        admitted=(field_map.get("admitted"), "sum"),
+        enrolled=(field_map.get("enrolled"), "sum"),
+        semesters_lost=('semesters_lost', 'first')
+    ).reset_index()
 
-    semester_yield['new_yield'] = (
-        (semester_yield['enrolled'] / semester_yield['admitted']) * (1 + relative_increase)
-    ).clip(upper=1)
-
-    semester_yield['expected_enrolled'] = semester_yield['admitted'] * semester_yield['new_yield']
+    semester_yield = semester_yield[semester_yield['admitted']>0]
+    semester_yield['new_yield'] = (semester_yield['enrolled']/semester_yield['admitted']*(1+relative_increase)).clip(upper=1)
+    semester_yield['expected_enrolled'] = semester_yield['admitted']*semester_yield['new_yield']
     semester_yield['additional_students'] = semester_yield['expected_enrolled'] - semester_yield['enrolled']
+    semester_yield['additional_revenue'] = semester_yield['additional_students']*semester_yield['semesters_lost']*TUITION_PER_SEM
 
-    semester_yield['additional_revenue'] = (
-        semester_yield['additional_students'] *
-        semester_yield['semesters_lost'] *
-        TUITION_PER_SEM
-    )
-
-    additional_revenue_hs = (
-        semester_yield.groupby(field_map['school'])['additional_revenue']
-        .sum()
-        .reset_index()
-    )
-
-    hs = hs.merge(additional_revenue_hs, on=field_map['school'], how='left')
+    additional_revenue_hs = semester_yield.groupby(field_map.get("name"))['additional_revenue'].sum().reset_index()
+    hs = hs.merge(additional_revenue_hs, on=field_map.get("name"), how="left")
     total_additional = hs['additional_revenue'].sum()
 
     # ----------------------------
@@ -173,17 +140,16 @@ if uploaded_file is not None:
     hs['Recruitment_Category'] = hs.apply(classify, axis=1)
 
     # ----------------------------
-    # CATEGORY FILTER
+    # DISPLAY
     # ----------------------------
-    category = st.selectbox(
-        "Filter by Recruitment Category",
-        ["All"] + list(hs['Recruitment_Category'].unique())
-    )
-    display_df = hs if category == "All" else hs[hs['Recruitment_Category'] == category]
+    category = st.selectbox("Filter by Recruitment Category", ["All"] + list(hs['Recruitment_Category'].unique()))
+    if category != "All":
+        display_df = hs[hs['Recruitment_Category']==category]
+    else:
+        display_df = hs
 
     st.metric("💰 Total Additional Revenue Potential", f"${total_additional:,.0f}")
     st.dataframe(display_df)
-
     # ----------------------------
     # PROJECTION SECTION
     # ----------------------------
@@ -196,17 +162,17 @@ if uploaded_file is not None:
     df = df.dropna(subset=['Year'])
 
     yearly = (
-        df.groupby([field_map['school'], 'Year'])
+        df.groupby([field_map['name'], 'Year'])
           .agg(
-              applicants=(field_map['school'], 'count'),
+              applicants=(field_map['name'], 'count'),
               admitted=(field_map['admitted'], 'sum'),
               enrolled=(field_map['enrolled'], 'sum')
           )
           .reset_index()
     )
 
-    selected_school = st.selectbox("Select School for Projection", yearly[field_map['school']].unique())
-    school_data = yearly[yearly[field_map['school']] == selected_school].sort_values('Year')
+    selected_school = st.selectbox("Select School for Projection", yearly[field_map['name']].unique())
+    school_data = yearly[yearly[field_map['name']] == selected_school].sort_values('Year')
 
     def calculate_cagr(first, last, years):
         if first <= 0 or years <= 0:
