@@ -55,11 +55,6 @@ if uploaded_file is not None:
     df = pd.read_csv(uploaded_file)
     pd.set_option('future.no_silent_downcasting', True)
 
-    st.sidebar.header("⚙ CSV Field Mapping")
-    mapping_choice = st.sidebar.selectbox(
-        "Select CSV Type",
-        ["High School CSV", "Transfer CSV"]
-    )
 
     
     # ----------------------------
@@ -295,3 +290,4 @@ if uploaded_file is not None:
 
         st.write(f"📊 Estimated Applicant Growth: {app_growth*100:.2f}%")
         st.write(f"🎓 Estimated Enrolled Growth: {enroll_growth*100:.2f}%")
+
