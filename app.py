@@ -18,44 +18,24 @@ client = get_client()
 db = client["test"]
 
 # --------------------------------------------------
-# CACHED COLLECTION LIST
+# COLLECTION SELECT
 # --------------------------------------------------
-@st.cache_data(ttl=600)
-def get_collections():
-    return db.list_collection_names()
-
-collections = get_collections()
+collections = db.list_collection_names()
 selected_collection = st.selectbox("Select Collection", collections)
-
-# --------------------------------------------------
-# CACHED DATA LOAD
-# --------------------------------------------------
-@st.cache_data(ttl=600)
-def load_data(collection):
-    return pd.DataFrame(list(db[collection].find({}, {"_id": 0})))
-
-df = load_data(selected_collection)
-
-if df.empty:
-    st.warning("This collection is empty!")
-    st.stop()
-
-st.success(f"Loaded {len(df)} records from `{selected_collection}` collection.")
+collection = db[selected_collection]
 
 # --------------------------------------------------
 # FIELD MAP
 # --------------------------------------------------
-if selected_collection == 'Freshmen':
+if selected_collection == "Freshmen":
     field_map = {
         "name": "HS_Name",
-        "type": "HS_Type",
         "city": "HS_City",
         "state": "HS_State",
         "gpa": "HS_GPA",
         "admitted": "admitted",
         "matriculated": "matriculated",
         "enrolled": "enrolled",
-        "department": "Department",
         "term": "ADMIT_TERM"
     }
 else:
@@ -67,218 +47,226 @@ else:
         "admitted": "admitted",
         "matriculated": "matriculated",
         "enrolled": "enrolled",
-        "department": "Department",
         "term": "ADMIT_TERM"
     }
 
-for key, val in list(field_map.items()):
-    if val not in df.columns:
-        field_map.pop(key)
-
 # --------------------------------------------------
-# PREPROCESS + SCHOOL AGGREGATION (CACHED)
+# SCHOOL-LEVEL AGGREGATION (Mongo does the work)
 # --------------------------------------------------
 @st.cache_data(ttl=600)
-def preprocess_and_aggregate(df, field_map):
+def get_school_agg(collection_name, field_map):
 
-    TUITION_PER_SEM = 3465
-    semesters_lost_map = {1229:7,1232:6,1239:5,1242:4,1249:3,1252:2,1259:1}
+    pipeline = [
+        {
+            "$addFields": {
+                "admitted_int": {"$cond": [{"$eq": [f"${field_map['admitted']}", "Y"]}, 1, 0]},
+                "enrolled_int": {"$cond": [{"$eq": [f"${field_map['enrolled']}", "Y"]}, 1, 0]},
+                "matriculated_int": {"$cond": [{"$eq": [f"${field_map['matriculated']}", "Y"]}, 1, 0]},
+            }
+        },
+        {
+            "$group": {
+                "_id": {
+                    "name": f"${field_map['name']}",
+                    "city": f"${field_map['city']}",
+                    "state": f"${field_map['state']}"
+                },
+                "applicants": {"$sum": 1},
+                "admitted": {"$sum": "$admitted_int"},
+                "matriculated": {"$sum": "$matriculated_int"},
+                "enrolled": {"$sum": "$enrolled_int"},
+                "avg_gpa": {"$avg": f"${field_map['gpa']}"}
+            }
+        }
+    ]
 
-    df = df.copy()
+    result = list(db[collection_name].aggregate(pipeline))
+    df = pd.json_normalize(result)
+    df.rename(columns={
+        "_id.name": "name",
+        "_id.city": "city",
+        "_id.state": "state"
+    }, inplace=True)
 
-    df['semesters_lost'] = df[field_map["term"]].map(semesters_lost_map)
+    return df
 
-    for col in ["admitted","matriculated","enrolled"]:
-        df[field_map[col]] = df[field_map[col]].replace({"Y":1,"N":0}).astype(int)
+hs = get_school_agg(selected_collection, field_map)
 
-    df['money_lost'] = (
-        (df[field_map["admitted"]] - df[field_map["enrolled"]])
-        * df['semesters_lost']
-        * TUITION_PER_SEM
-    )
-
-    group_cols = [field_map["name"], field_map["city"], field_map["state"]]
-
-    agg_dict = {
-        field_map["admitted"]: "sum",
-        field_map["matriculated"]: "sum",
-        field_map["enrolled"]: "sum",
-        field_map["gpa"]: "mean",
-        "money_lost": "sum"
-    }
-
-    applicant_counts = df.groupby(field_map["name"]).size().rename("applicants")
-
-    hs = (
-        df.groupby(group_cols)
-        .agg(agg_dict)
-        .join(applicant_counts, on=field_map["name"])
-        .reset_index()
-    )
-
-    hs['yield'] = hs[field_map["enrolled"]] / hs[field_map["admitted"]]
-    hs['specific_yield'] = hs[field_map["enrolled"]] / hs[field_map["matriculated"]]
-    hs['ROI'] = hs[field_map["enrolled"]] / hs['applicants']
-
-    global_roi = hs[field_map["enrolled"]].sum() / hs['applicants'].sum()
-    k = 5
-    hs['bayes_ROI'] = (hs[field_map["enrolled"]] + global_roi*k) / (hs['applicants'] + k)
-
-    return df, hs
-
-df, hs = preprocess_and_aggregate(df, field_map)
+if hs.empty:
+    st.warning("No data found.")
+    st.stop()
 
 # --------------------------------------------------
-# SEMESTER BASE (CACHED)
+# DERIVED METRICS (Same Logic)
+# --------------------------------------------------
+hs["yield"] = hs["enrolled"] / hs["admitted"]
+hs["specific_yield"] = hs["enrolled"] / hs["matriculated"]
+hs["ROI"] = hs["enrolled"] / hs["applicants"]
+
+global_roi = hs["enrolled"].sum() / hs["applicants"].sum()
+k = 5
+hs["bayes_ROI"] = (hs["enrolled"] + global_roi*k) / (hs["applicants"] + k)
+
+# --------------------------------------------------
+# YIELD SIMULATION (Mongo Aggregated by Term)
 # --------------------------------------------------
 @st.cache_data(ttl=600)
-def build_semester_base(df, field_map):
-    return (
-        df.groupby([field_map["name"], field_map["term"]])
-        .agg(
-            admitted=(field_map["admitted"], "sum"),
-            enrolled=(field_map["enrolled"], "sum"),
-            semesters_lost=('semesters_lost', 'first')
-        )
-        .reset_index()
-    )
+def get_semester_base(collection_name, field_map):
 
-semester_base = build_semester_base(df, field_map)
+    pipeline = [
+        {
+            "$addFields": {
+                "admitted_int": {"$cond": [{"$eq": [f"${field_map['admitted']}", "Y"]}, 1, 0]},
+                "enrolled_int": {"$cond": [{"$eq": [f"${field_map['enrolled']}", "Y"]}, 1, 0]},
+            }
+        },
+        {
+            "$group": {
+                "_id": {
+                    "name": f"${field_map['name']}",
+                    "term": f"${field_map['term']}"
+                },
+                "admitted": {"$sum": "$admitted_int"},
+                "enrolled": {"$sum": "$enrolled_int"}
+            }
+        }
+    ]
 
-# --------------------------------------------------
-# YIELD SIMULATION (FAST PART ONLY)
-# --------------------------------------------------
+    result = list(db[collection_name].aggregate(pipeline))
+    df = pd.json_normalize(result)
+    df.rename(columns={
+        "_id.name": "name",
+        "_id.term": "term"
+    }, inplace=True)
+
+    return df
+
+semester_base = get_semester_base(selected_collection, field_map)
+
 st.sidebar.header("⚙ Yield Simulation")
 relative_increase = st.sidebar.slider("Increase Yield (%)", 0, 50, 10)/100
 
-semester_yield = semester_base.copy()
-semester_yield = semester_yield[semester_yield['admitted'] > 0]
-
-semester_yield['new_yield'] = (
-    semester_yield['enrolled']/semester_yield['admitted']*(1+relative_increase)
+semester_base = semester_base[semester_base["admitted"] > 0]
+semester_base["new_yield"] = (
+    semester_base["enrolled"]/semester_base["admitted"]*(1+relative_increase)
 ).clip(upper=1)
 
-semester_yield['expected_enrolled'] = semester_yield['admitted']*semester_yield['new_yield']
-semester_yield['additional_students'] = semester_yield['expected_enrolled'] - semester_yield['enrolled']
-semester_yield['additional_revenue'] = (
-    semester_yield['additional_students'] *
-    semester_yield['semesters_lost'] * 3465
+semester_base["expected_enrolled"] = semester_base["admitted"]*semester_base["new_yield"]
+semester_base["additional_students"] = semester_base["expected_enrolled"] - semester_base["enrolled"]
+
+additional_revenue_hs = (
+    semester_base.groupby("name")["additional_students"]
+    .sum()
+    .reset_index()
 )
 
-additional_revenue_hs = semester_yield.groupby(field_map["name"])['additional_revenue'].sum().reset_index()
-hs = hs.merge(additional_revenue_hs, on=field_map["name"], how="left")
-hs['additional_revenue'] = hs['additional_revenue'].fillna(0)
-total_additional = hs['additional_revenue'].sum()
+hs = hs.merge(additional_revenue_hs, on="name", how="left")
+hs["additional_students"] = hs["additional_students"].fillna(0)
+
+total_additional = hs["additional_students"].sum()
 
 # --------------------------------------------------
 # CLASSIFICATION
 # --------------------------------------------------
-vol_thresh = hs['applicants'].mean()
-roi_thresh = hs['bayes_ROI'].mean()
+vol_thresh = hs["applicants"].mean()
+roi_thresh = hs["bayes_ROI"].mean()
 
 def classify(row):
-    if row['applicants'] >= vol_thresh and row['bayes_ROI'] >= roi_thresh:
-        return 'Flagship'
-    elif row['applicants'] < vol_thresh and row['bayes_ROI'] >= roi_thresh:
-        return 'Fringe Gem'
-    elif row['applicants'] >= vol_thresh and row['bayes_ROI'] < roi_thresh:
-        return 'Over-recruited'
+    if row["applicants"] >= vol_thresh and row["bayes_ROI"] >= roi_thresh:
+        return "Flagship"
+    elif row["applicants"] < vol_thresh and row["bayes_ROI"] >= roi_thresh:
+        return "Fringe Gem"
+    elif row["applicants"] >= vol_thresh and row["bayes_ROI"] < roi_thresh:
+        return "Over-recruited"
     else:
-        return 'Low Priority'
+        return "Low Priority"
 
-hs['Recruitment_Category'] = hs.apply(classify, axis=1)
+hs["Recruitment_Category"] = hs.apply(classify, axis=1)
 
 # --------------------------------------------------
 # DISPLAY
 # --------------------------------------------------
-category = st.selectbox("Filter by Recruitment Category", ["All"] + list(hs['Recruitment_Category'].unique()))
-display_df = hs if category == "All" else hs[hs['Recruitment_Category']==category]
+category = st.selectbox("Filter by Recruitment Category",
+                        ["All"] + list(hs["Recruitment_Category"].unique()))
 
-st.metric("💰 Total Additional Revenue Potential", f"${total_additional:,.0f}")
+display_df = hs if category == "All" else hs[hs["Recruitment_Category"]==category]
+
+st.metric("📈 Additional Students (Simulated)", f"{int(total_additional)}")
 st.dataframe(display_df)
 
 # --------------------------------------------------
-# YEARLY PROJECTION (CACHED PRE-AGG)
+# YEARLY PROJECTION (Mongo Aggregated)
 # --------------------------------------------------
 @st.cache_data(ttl=600)
-def build_yearly_projection(df, field_map):
+def get_yearly_projection(collection_name, field_map):
 
-    term_to_year = {1229: 2022, 1232: 2023, 1239: 2023,
-                    1242: 2024, 1249: 2024,
-                    1252: 2025, 1259: 2025}
+    term_to_year = {
+        1229: 2022, 1232: 2023, 1239: 2023,
+        1242: 2024, 1249: 2024,
+        1252: 2025, 1259: 2025
+    }
 
-    df = df.copy()
-    df['Year'] = df[field_map['term']].map(term_to_year)
-    df = df.dropna(subset=['Year'])
+    pipeline = [
+        {
+            "$addFields": {
+                "admitted_int": {"$cond": [{"$eq": [f"${field_map['admitted']}", "Y"]}, 1, 0]},
+                "enrolled_int": {"$cond": [{"$eq": [f"${field_map['enrolled']}", "Y"]}, 1, 0]},
+                "year": {
+                    "$switch": {
+                        "branches": [
+                            {"case": {"$eq": [f"${field_map['term']}", k]}, "then": v}
+                            for k, v in term_to_year.items()
+                        ],
+                        "default": None
+                    }
+                }
+            }
+        },
+        {"$match": {"year": {"$ne": None}}},
+        {
+            "$group": {
+                "_id": {"name": f"${field_map['name']}", "year": "$year"},
+                "applicants": {"$sum": 1},
+                "enrolled": {"$sum": "$enrolled_int"}
+            }
+        }
+    ]
 
-    yearly = (
-        df.groupby([field_map['name'], 'Year'])
-          .agg(
-              applicants=(field_map['name'], 'count'),
-              admitted=(field_map['admitted'], 'sum'),
-              enrolled=(field_map['enrolled'], 'sum')
-          )
-          .reset_index()
-    )
+    result = list(db[collection_name].aggregate(pipeline))
+    df = pd.json_normalize(result)
+    df.rename(columns={"_id.name": "name", "_id.year": "Year"}, inplace=True)
+    return df
 
-    return yearly
+yearly = get_yearly_projection(selected_collection, field_map)
 
-yearly = build_yearly_projection(df, field_map)
-
-# --------------------------------------------------
-# PROJECTION SECTION
-# --------------------------------------------------
 st.header("📈 3-Year Growth Projection")
 
-selected_school = st.selectbox("Select School for Projection", yearly[field_map['name']].unique())
-school_data = yearly[yearly[field_map['name']] == selected_school].sort_values('Year')
-
-def calculate_cagr(first, last, years):
-    if first <= 0 or years <= 0:
-        return 0
-    rate = (last / first) ** (1 / years) - 1
-    return max(min(rate, 0.25), -0.25)
+selected_school = st.selectbox("Select School", yearly["name"].unique())
+school_data = yearly[yearly["name"] == selected_school].sort_values("Year")
 
 if len(school_data) >= 2:
 
-    first_year = school_data['Year'].iloc[0]
-    last_year = school_data['Year'].iloc[-1]
-    years_diff = last_year - first_year
+    first = school_data.iloc[0]
+    last = school_data.iloc[-1]
+    years = last["Year"] - first["Year"]
 
-    app_growth = calculate_cagr(
-        school_data['applicants'].iloc[0],
-        school_data['applicants'].iloc[-1],
-        years_diff
-    )
+    growth = (last["enrolled"]/first["enrolled"])**(1/years)-1 if years>0 else 0
+    growth = max(min(growth, 0.25), -0.25)
 
-    enroll_growth = calculate_cagr(
-        school_data['enrolled'].iloc[0],
-        school_data['enrolled'].iloc[-1],
-        years_diff
-    )
+    future_years = [last["Year"]+i for i in range(1,4)]
+    future_vals = [last["enrolled"]*((1+growth)**i) for i in range(1,4)]
 
-    last_app = school_data['applicants'].iloc[-1]
-    last_enroll = school_data['enrolled'].iloc[-1]
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(x=school_data["Year"],
+                             y=school_data["enrolled"],
+                             mode="lines+markers",
+                             name="Historical"))
+    fig.add_trace(go.Scatter(x=future_years,
+                             y=future_vals,
+                             mode="lines+markers",
+                             name="Projected",
+                             line=dict(dash="dash")))
 
-    future_years = [last_year+i for i in range(1,4)]
-    future_apps = [last_app*((1+app_growth)**i) for i in range(1,4)]
-    future_enrolls = [last_enroll*((1+enroll_growth)**i) for i in range(1,4)]
-
-    fig_app = go.Figure()
-    fig_app.add_trace(go.Scatter(x=school_data['Year'], y=school_data['applicants'],
-                                 mode='lines+markers', name='Historical Applicants'))
-    fig_app.add_trace(go.Scatter(x=future_years, y=future_apps,
-                                 mode='lines+markers', name='Projected Applicants',
-                                 line=dict(dash='dash')))
-    st.plotly_chart(fig_app, use_container_width=True)
-
-    fig_enroll = go.Figure()
-    fig_enroll.add_trace(go.Scatter(x=school_data['Year'], y=school_data['enrolled'],
-                                    mode='lines+markers', name='Historical Enrolled'))
-    fig_enroll.add_trace(go.Scatter(x=future_years, y=future_enrolls,
-                                    mode='lines+markers', name='Projected Enrolled',
-                                    line=dict(dash='dash')))
-    st.plotly_chart(fig_enroll, use_container_width=True)
-
-    st.write(f"📊 Estimated Applicant Growth: {app_growth*100:.2f}%")
-    st.write(f"🎓 Estimated Enrolled Growth: {enroll_growth*100:.2f}%")
+    st.plotly_chart(fig, use_container_width=True)
+    st.write(f"🎓 Estimated Enrolled Growth: {growth*100:.2f}%")
+    
