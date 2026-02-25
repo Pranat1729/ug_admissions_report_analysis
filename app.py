@@ -4,14 +4,47 @@ import numpy as np
 import plotly.graph_objects as go
 from pymongo import MongoClient
 
+client = MongoClient(st.secrets["MONGO_URI"])
+db = client["test"]
+users_col = db['users]
+
+if "logged_in" not in st.session_state:
+    st.session_state.logged_in = False
+if "username" not in st.session_state:
+    st.session_state.username = ""
+
+
+def login(username, password):
+    return users_col.find_one({
+        "username": username,
+        "password": password
+    })
+
+if not st.session_state.logged_in:
+    st.title("Inventory Login")
+
+    with st.form("login_form"):
+        username = st.text_input("Username")
+        password = st.text_input("Password", type="password")
+        submitted = st.form_submit_button("Login")
+
+        if submitted:
+            user = login(username, password)
+            if user:
+                st.session_state.logged_in = True
+                st.session_state.username = username
+               
+                st.session_state.role = user.get("role", "user")
+                
+            else:
+                st.error("Invalid username or password")
+
+    st.stop()
 st.set_page_config(layout="wide")
 st.title("📊 Recruitment Analytics Dashboard")
-
 # ----------------------------
 # MONGO DB CONNECTION
 # ----------------------------
-client = MongoClient(st.secrets["MONGO_URI"])
-db = client["test"]
 
 # Select collection
 collections = db.list_collection_names()
@@ -153,3 +186,4 @@ else:
         st.write(f"🎓 Estimated Enrolled Growth: {enroll_growth*100:.2f}%")
     else:
         st.warning("Not enough historical data for projection.")
+
