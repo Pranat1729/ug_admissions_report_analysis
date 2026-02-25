@@ -10,6 +10,8 @@ st.title("📊 Recruitment Analytics Dashboard")
 
 client = MongoClient(st.secrets["MONGO_URI"])
 db = client["test"]  
+
+
 collections = db.list_collection_names()
 selected_collection = st.selectbox("Select Collection", collections)
 
@@ -21,8 +23,8 @@ if df.empty:
 else:
     st.success(f"Loaded {len(df)} records from `{selected_collection}` collection.")
 
- 
-    if selected_collection == 'Freshmen':  # Freshman CSV
+   
+    if "HS_Type" in df.columns:  # Freshman CSV
         field_map = {
             "name": "HS_Name",
             "type": "HS_Type",
@@ -32,30 +34,31 @@ else:
             "admitted": "admitted",
             "matriculated": "matriculated",
             "enrolled": "enrolled",
-            "department": "Department",
+            #"department": "Department",
             "term": "ADMIT_TERM"
         }
-    else:  
+    else:  # Transfer CSV
         field_map = {
-            "name": "LAST_COL_UGRD_DESCR", 
+            "name": "LAST_COL_UGRD_DESCR",
+            #"type": "dummy_type",  # not present in transfer, will skip
             "city": "Coll_City",
             "state": "Coll_State",
             "gpa": "Coll_GPA",
             "admitted": "admitted",
             "matriculated": "matriculated",
             "enrolled": "enrolled",
-            "department": "Department",
+            #"department": "Department",
             "term": "ADMIT_TERM"
         }
 
- 
+    # Optional: drop missing columns
     for key, val in list(field_map.items()):
         if val not in df.columns:
             st.warning(f"Column `{val}` not found in this collection; skipping mapping.")
             field_map.pop(key)
 
     # ----------------------------
-    #  METRICS
+    # PROCESS METRICS
     # ----------------------------
     TUITION_PER_SEM = 3465
     semesters_lost_map = {1229:7,1232:6,1239:5,1242:4,1249:3,1252:2,1259:1}
@@ -63,45 +66,8 @@ else:
     if field_map.get("term"):
         df['semesters_lost'] = df[field_map["term"]].map(semesters_lost_map)
 
-    
-    for col in ["admitted","matriculated","enrolled"]:
-        if field_map.get(col) and field_map[col] in df.columns:
-            df[field_map[col]] = df[field_map[col]].replace({"Y":1,"N":0}).astype(int)
-
-    # Money lost
-    df['money_lost'] = (df[field_map["admitted"]] - df[field_map["enrolled"]]) * df['semesters_lost'] * TUITION_PER_SEM
-
-    # Aggregate by school
-    group_cols = [field_map.get("name"), field_map.get("city"), field_map.get("state")]
-    agg_dict = {
-        field_map.get("admitted"): "sum",
-        field_map.get("matriculated"): "sum",
-        field_map.get("enrolled"): "sum",
-        field_map.get("gpa"): "mean",
-        "money_lost": "sum"
-    }
-
-    if field_map.get("department"):
-        agg_dict[field_map["department"]] = lambda x: x.mode()[0] if not x.mode().empty else None
-
-    applicant_counts = df.groupby(field_map.get("name")).size().rename("applicants")
-
-    hs = df.groupby(group_cols).agg(agg_dict).join(applicant_counts, on=field_map.get("name")).reset_index()
-
-    # Ratios
-    hs['yield'] = hs[field_map["enrolled"]] / hs[field_map["admitted"]]
-    hs['specific_yield'] = hs[field_map["enrolled"]] / hs[field_map["matriculated"]]
-    hs['ROI'] = hs[field_map["enrolled"]] / hs['applicants']
-    hs.replace([np.inf, -np.inf], np.nan, inplace=True)
-
-    # Bayesian ROI
-    global_roi = hs[field_map["enrolled"]].sum() / hs['applicants'].sum()
-    k = 5
-    hs['bayes_ROI'] = (hs[field_map["enrolled"]] + global_roi*k) / (hs['applicants'] + k)
-
-    # ----------------------------
-    # YIELD INCREASE SIMULATION
-    # ----------------------------
+#--------- --------YIELD INCREASE SIMULATION-----------
+   
     st.sidebar.header("⚙ Yield Simulation")
     relative_increase = st.sidebar.slider("Increase Yield (%)", 0, 50, 10)/100
 
@@ -121,27 +87,7 @@ else:
     hs = hs.merge(additional_revenue_hs, on=field_map.get("name"), how="left")
     total_additional = hs['additional_revenue'].sum()
 
-    # ----------------------------
-    # CLASSIFICATION
-    # ----------------------------
-    vol_thresh = hs['applicants'].mean()
-    roi_thresh = hs['bayes_ROI'].mean()
 
-    def classify(row):
-        if row['applicants'] >= vol_thresh and row['bayes_ROI'] >= roi_thresh:
-            return 'Flagship'
-        elif row['applicants'] < vol_thresh and row['bayes_ROI'] >= roi_thresh:
-            return 'Fringe Gem'
-        elif row['applicants'] >= vol_thresh and row['bayes_ROI'] < roi_thresh:
-            return 'Over-recruited'
-        else:
-            return 'Low Priority'
-
-    hs['Recruitment_Category'] = hs.apply(classify, axis=1)
-
-    # ----------------------------
-    # DISPLAY
-    # ----------------------------
     category = st.selectbox("Filter by Recruitment Category", ["All"] + list(hs['Recruitment_Category'].unique()))
     if category != "All":
         display_df = hs[hs['Recruitment_Category']==category]
@@ -150,9 +96,9 @@ else:
 
     st.metric("💰 Total Additional Revenue Potential", f"${total_additional:,.0f}")
     st.dataframe(display_df)
-    # ----------------------------
-    # PROJECTION SECTION
-    # ----------------------------
+
+#-----------------------PROJECTION SECTION-----------------
+
     st.header("📈 3-Year Growth Projection")
 
     term_to_year = {1229: 2022, 1232: 2023, 1239: 2023, 1242: 2024,
@@ -162,17 +108,17 @@ else:
     df = df.dropna(subset=['Year'])
 
     yearly = (
-        df.groupby([field_map['name'], 'Year'])
+        df.groupby([field_map['school'], 'Year'])
           .agg(
-              applicants=(field_map['name'], 'count'),
+              applicants=(field_map['school'], 'count'),
               admitted=(field_map['admitted'], 'sum'),
               enrolled=(field_map['enrolled'], 'sum')
           )
           .reset_index()
     )
 
-    selected_school = st.selectbox("Select School for Projection", yearly[field_map['name']].unique())
-    school_data = yearly[yearly[field_map['name']] == selected_school].sort_values('Year')
+    selected_school = st.selectbox("Select School for Projection", yearly[field_map['school']].unique())
+    school_data = yearly[yearly[field_map['school']] == selected_school].sort_values('Year')
 
     def calculate_cagr(first, last, years):
         if first <= 0 or years <= 0:
@@ -210,9 +156,7 @@ else:
             future_apps.append(last_app * ((1 + app_growth) ** i))
             future_enrolls.append(last_enroll * ((1 + enroll_growth) ** i))
 
-        # ----------------------------
-        # APPLICANT PROJECTION (Interactive)
-        # ----------------------------
+        
         fig_app = go.Figure()
         fig_app.add_trace(go.Scatter(
             x=school_data['Year'],
@@ -232,9 +176,7 @@ else:
                               hovermode="x unified")
         st.plotly_chart(fig_app, use_container_width=True)
 
-        # ----------------------------
-        # ENROLLED PROJECTION 
-        # ----------------------------
+       
         fig_enroll = go.Figure()
         fig_enroll.add_trace(go.Scatter(
             x=school_data['Year'],
@@ -256,3 +198,4 @@ else:
 
         st.write(f"📊 Estimated Applicant Growth: {app_growth*100:.2f}%")
         st.write(f"🎓 Estimated Enrolled Growth: {enroll_growth*100:.2f}%")
+
