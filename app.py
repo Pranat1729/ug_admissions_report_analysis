@@ -17,7 +17,7 @@ selected_collection = st.selectbox("Select Collection", collections)
 
 
 df = pd.DataFrame(list(db[selected_collection].find()))
-
+hs = df.copy()
 if df.empty:
     st.warning("This collection is empty!")
 else:
@@ -108,9 +108,9 @@ else:
     df = df.dropna(subset=['Year'])
 
     yearly = (
-        df.groupby([field_map['school'], 'Year'])
+        df.groupby([field_map['name'], 'Year'])
           .agg(
-              applicants=(field_map['school'], 'count'),
+              applicants=(field_map['name'], 'count'),
               admitted=(field_map['admitted'], 'sum'),
               enrolled=(field_map['enrolled'], 'sum')
           )
@@ -118,7 +118,7 @@ else:
     )
 
     selected_school = st.selectbox("Select School for Projection", yearly[field_map['school']].unique())
-    school_data = yearly[yearly[field_map['school']] == selected_school].sort_values('Year')
+    school_data = yearly[yearly[field_map['name']] == selected_school].sort_values('Year')
 
     def calculate_cagr(first, last, years):
         if first <= 0 or years <= 0:
@@ -198,6 +198,7 @@ else:
 
         st.write(f"📊 Estimated Applicant Growth: {app_growth*100:.2f}%")
         st.write(f"🎓 Estimated Enrolled Growth: {enroll_growth*100:.2f}%")
+
 
 
 
