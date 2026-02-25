@@ -11,20 +11,24 @@ st.title("📊 Recruitment Analytics Dashboard")
 client = MongoClient(st.secrets["MONGO_URI"])
 db = client["test"]  
 
-
+# List all collections
 collections = db.list_collection_names()
 selected_collection = st.selectbox("Select Collection", collections)
 
-
+# Fetch entire collection as DataFrame
 df = pd.DataFrame(list(db[selected_collection].find()))
-hs = df.copy()
+
 if df.empty:
     st.warning("This collection is empty!")
 else:
     st.success(f"Loaded {len(df)} records from `{selected_collection}` collection.")
 
-   
-    if "HS_Type" in df.columns:  # Freshman CSV
+    # ----------------------------
+    # FIELD MAPPING LOGIC
+    # ----------------------------
+    # Map standard names for the app
+    # Adjust depending on collection
+    if selected_collection == 'Freshmen':  # Freshman CSV
         field_map = {
             "name": "HS_Name",
             "type": "HS_Type",
@@ -40,7 +44,7 @@ else:
     else:  # Transfer CSV
         field_map = {
             "name": "LAST_COL_UGRD_DESCR",
-            #"type": "dummy_type",  # not present in transfer, will skip
+  # not present in transfer, will skip
             "city": "Coll_City",
             "state": "Coll_State",
             "gpa": "Coll_GPA",
@@ -66,8 +70,10 @@ else:
     if field_map.get("term"):
         df['semesters_lost'] = df[field_map["term"]].map(semesters_lost_map)
 
-#--------- --------YIELD INCREASE SIMULATION-----------
-   
+  
+    # ----------------------------
+    # YIELD INCREASE SIMULATION
+    # ----------------------------
     st.sidebar.header("⚙ Yield Simulation")
     relative_increase = st.sidebar.slider("Increase Yield (%)", 0, 50, 10)/100
 
@@ -84,10 +90,12 @@ else:
     semester_yield['additional_revenue'] = semester_yield['additional_students']*semester_yield['semesters_lost']*TUITION_PER_SEM
 
     additional_revenue_hs = semester_yield.groupby(field_map.get("name"))['additional_revenue'].sum().reset_index()
-    hs = hs.merge(additional_revenue_hs, on=field_map.get("name"), how="left")
+    hs = df.merge(additional_revenue_hs, on=field_map.get("name"), how="left")
     total_additional = hs['additional_revenue'].sum()
 
-
+    # ----------------------------
+    # DISPLAY
+    # ----------------------------
     category = st.selectbox("Filter by Recruitment Category", ["All"] + list(hs['Recruitment_Category'].unique()))
     if category != "All":
         display_df = hs[hs['Recruitment_Category']==category]
@@ -96,9 +104,9 @@ else:
 
     st.metric("💰 Total Additional Revenue Potential", f"${total_additional:,.0f}")
     st.dataframe(display_df)
-
-#-----------------------PROJECTION SECTION-----------------
-
+    # ----------------------------
+    # PROJECTION SECTION
+    # ----------------------------
     st.header("📈 3-Year Growth Projection")
 
     term_to_year = {1229: 2022, 1232: 2023, 1239: 2023, 1242: 2024,
@@ -117,7 +125,7 @@ else:
           .reset_index()
     )
 
-    selected_school = st.selectbox("Select School for Projection", yearly[field_map['school']].unique())
+    selected_school = st.selectbox("Select School for Projection", yearly[field_map['name']].unique())
     school_data = yearly[yearly[field_map['name']] == selected_school].sort_values('Year')
 
     def calculate_cagr(first, last, years):
@@ -156,7 +164,9 @@ else:
             future_apps.append(last_app * ((1 + app_growth) ** i))
             future_enrolls.append(last_enroll * ((1 + enroll_growth) ** i))
 
-        
+        # ----------------------------
+        # APPLICANT PROJECTION (Interactive)
+        # ----------------------------
         fig_app = go.Figure()
         fig_app.add_trace(go.Scatter(
             x=school_data['Year'],
@@ -176,7 +186,9 @@ else:
                               hovermode="x unified")
         st.plotly_chart(fig_app, use_container_width=True)
 
-       
+        # ----------------------------
+        # ENROLLED PROJECTION 
+        # ----------------------------
         fig_enroll = go.Figure()
         fig_enroll.add_trace(go.Scatter(
             x=school_data['Year'],
@@ -198,8 +210,4 @@ else:
 
         st.write(f"📊 Estimated Applicant Growth: {app_growth*100:.2f}%")
         st.write(f"🎓 Estimated Enrolled Growth: {enroll_growth*100:.2f}%")
-
-
-
-
 
