@@ -134,15 +134,15 @@ additional_revenue_hs = (
 )
 
 # Merge safely
-hs = hs.merge(
+df = df.merge(
     additional_revenue_hs,
     on=field_map["name"],
     how="left"
 )
 
-hs["additional_revenue"] = hs["additional_revenue"].fillna(0)
+df["additional_revenue"] = hs["additional_revenue"].fillna(0)
 
-total_additional = hs["additional_revenue"].sum()
+total_additional = df["additional_revenue"].sum()
 
 # ----------------------------------------
 # CATEGORY FILTER
@@ -299,3 +299,4 @@ if len(school_data) >= 2:
 
 else:
     st.warning("Not enough historical data for projection.")
+
