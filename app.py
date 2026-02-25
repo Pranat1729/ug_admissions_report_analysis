@@ -26,7 +26,7 @@ else:
    
     if "HS_Type" in df.columns:  # Freshman CSV
         field_map = {
-            "school": "HS_Name",
+            "name": "HS_Name",
             "type": "HS_Type",
             "city": "HS_City",
             "state": "HS_State",
@@ -39,7 +39,7 @@ else:
         }
     else:  # Transfer CSV
         field_map = {
-            "school": "LAST_COL_UGRD_DESCR",
+            "name": "LAST_COL_UGRD_DESCR",
             #"type": "dummy_type",  # not present in transfer, will skip
             "city": "Coll_City",
             "state": "Coll_State",
@@ -198,6 +198,7 @@ else:
 
         st.write(f"📊 Estimated Applicant Growth: {app_growth*100:.2f}%")
         st.write(f"🎓 Estimated Enrolled Growth: {enroll_growth*100:.2f}%")
+
 
 
 
