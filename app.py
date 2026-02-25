@@ -21,7 +21,7 @@ def login(username, password):
     })
 
 if not st.session_state.logged_in:
-    st.title("Inventory Login")
+    st.title("Recruitment Analysis Report Log In")
 
     with st.form("login_form"):
         username = st.text_input("Username")
@@ -186,5 +186,6 @@ else:
         st.write(f"🎓 Estimated Enrolled Growth: {enroll_growth*100:.2f}%")
     else:
         st.warning("Not enough historical data for projection.")
+
 
 
