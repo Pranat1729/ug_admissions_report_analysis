@@ -6,7 +6,7 @@ from pymongo import MongoClient
 
 client = MongoClient(st.secrets["MONGO_URI"])
 db = client["test"]
-users_col = db['users]
+users_col = db['users']
 
 if "logged_in" not in st.session_state:
     st.session_state.logged_in = False
@@ -186,4 +186,5 @@ else:
         st.write(f"🎓 Estimated Enrolled Growth: {enroll_growth*100:.2f}%")
     else:
         st.warning("Not enough historical data for projection.")
+
 
