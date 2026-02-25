@@ -57,7 +57,17 @@ if df.empty:
     st.warning("This collection is empty!")
 else:
     st.success(f"Loaded {len(df)} records from `{selected_collection}` collection.")
+    
+category = st.selectbox(
+    "Filter by Recruitment Category",
+    ["All"] + df["Recruitment_Category"].dropna().unique().tolist()
+)
 
+# Filter the data
+if category != "All":
+    display_df = df[df["Recruitment_Category"] == category]
+else:
+    display_df = df
     # ----------------------------
     # FIELD MAPPING
     # ----------------------------
@@ -186,6 +196,7 @@ else:
         st.write(f"🎓 Estimated Enrolled Growth: {enroll_growth*100:.2f}%")
     else:
         st.warning("Not enough historical data for projection.")
+
 
 
 
