@@ -140,7 +140,7 @@ df = df.merge(
     how="left"
 )
 
-df["additional_revenue"] = hs["additional_revenue"].fillna(0)
+df["additional_revenue"] = df["additional_revenue"].fillna(0)
 
 total_additional = df["additional_revenue"].sum()
 
@@ -154,7 +154,7 @@ category = st.selectbox(
 )
 
 if category != "All":
-    display_df = hs[hs["Recruitment_Category"] == category]
+    display_df = df[df["Recruitment_Category"] == category]
 else:
     display_df = hs
 
@@ -299,4 +299,5 @@ if len(school_data) >= 2:
 
 else:
     st.warning("Not enough historical data for projection.")
+
 
