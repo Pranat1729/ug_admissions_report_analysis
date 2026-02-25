@@ -26,7 +26,7 @@ else:
    
     if "HS_Type" in df.columns:  # Freshman CSV
         field_map = {
-            "name": "HS_Name",
+            "school": "HS_Name",
             "type": "HS_Type",
             "city": "HS_City",
             "state": "HS_State",
@@ -39,7 +39,7 @@ else:
         }
     else:  # Transfer CSV
         field_map = {
-            "name": "LAST_COL_UGRD_DESCR",
+            "school": "LAST_COL_UGRD_DESCR",
             #"type": "dummy_type",  # not present in transfer, will skip
             "city": "Coll_City",
             "state": "Coll_State",
@@ -84,7 +84,7 @@ else:
     semester_yield['additional_revenue'] = semester_yield['additional_students']*semester_yield['semesters_lost']*TUITION_PER_SEM
 
     additional_revenue_hs = semester_yield.groupby(field_map.get("name"))['additional_revenue'].sum().reset_index()
-    hs = df.merge(additional_revenue_hs, on=field_map.get("name"), how="left")
+    hs = hs.merge(additional_revenue_hs, on=field_map.get("name"), how="left")
     total_additional = hs['additional_revenue'].sum()
 
 
@@ -198,5 +198,6 @@ else:
 
         st.write(f"📊 Estimated Applicant Growth: {app_growth*100:.2f}%")
         st.write(f"🎓 Estimated Enrolled Growth: {enroll_growth*100:.2f}%")
+
 
 
