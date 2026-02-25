@@ -34,8 +34,7 @@ else:
             "admitted": "admitted",
             "enrolled": "enrolled",
             "term": "ADMIT_TERM",
-            "applicants": "applicants",
-            "semesters_lost": "semesters_lost"
+            "applicants": "applicants"
         }
     else:
         field_map = {
@@ -43,9 +42,17 @@ else:
             "admitted": "admitted",
             "enrolled": "enrolled",
             "term": "ADMIT_TERM",
-            "applicants": "applicants",
-            "semesters_lost": "semesters_lost"
+            "applicants": "applicants"
         }
+
+    # ----------------------------
+    # SEMESTERS LOST MAP
+    # ----------------------------
+    semesters_lost_map = {1229:7, 1232:6, 1239:5, 1242:4, 1249:3, 1252:2, 1259:1}
+
+    # Compute semesters lost if not already present
+    if "semesters_lost" not in df.columns:
+        df["semesters_lost"] = df[field_map["term"]].map(semesters_lost_map)
 
     # ----------------------------
     # YIELD SIMULATION
@@ -54,15 +61,14 @@ else:
     st.sidebar.header("⚙ Yield Simulation")
     relative_increase = st.sidebar.slider("Increase Yield (%)", 0, 50, 10)/100
 
-    # Work directly on pre-aggregated data
+    # Use pre-aggregated data
     semester_yield = df[[field_map["name"], field_map["term"], 
                          field_map["admitted"], field_map["enrolled"], 
-                         field_map["semesters_lost"]]].copy()
+                         "semesters_lost"]].copy()
+    semester_yield = semester_yield[semester_yield[field_map["admitted"]] > 0]
 
     # Current yield
-    semester_yield["current_yield"] = (
-        semester_yield[field_map["enrolled"]] / semester_yield[field_map["admitted"]]
-    )
+    semester_yield["current_yield"] = semester_yield[field_map["enrolled"]] / semester_yield[field_map["admitted"]]
 
     # Apply relative increase
     semester_yield["new_yield"] = (semester_yield["current_yield"] * (1 + relative_increase)).clip(upper=1)
@@ -72,15 +78,10 @@ else:
 
     # Additional students & revenue
     semester_yield["additional_students"] = semester_yield["expected_enrolled"] - semester_yield[field_map["enrolled"]]
-    semester_yield["additional_revenue"] = (
-        semester_yield["additional_students"] * semester_yield[field_map["semesters_lost"]] * TUITION_PER_SEM
-    )
+    semester_yield["additional_revenue"] = semester_yield["additional_students"] * semester_yield["semesters_lost"] * TUITION_PER_SEM
 
     # Aggregate revenue per school
-    additional_revenue_hs = (
-        semester_yield.groupby(field_map["name"])["additional_revenue"].sum().reset_index()
-    )
-
+    additional_revenue_hs = semester_yield.groupby(field_map["name"])["additional_revenue"].sum().reset_index()
     total_additional = additional_revenue_hs["additional_revenue"].sum()
 
     st.metric("💰 Total Additional Revenue Potential", f"${total_additional:,.0f}")
@@ -92,7 +93,6 @@ else:
     st.header("📈 3-Year Growth Projection")
     term_to_year = {1229: 2022, 1232: 2023, 1239: 2023, 1242: 2024,
                     1249: 2024, 1252: 2025, 1259: 2025}
-
     df["Year"] = df[field_map["term"]].map(term_to_year)
     df = df.dropna(subset=["Year"])
 
