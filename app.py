@@ -128,11 +128,11 @@ else:
     total_additional = additional_revenue_hs["additional_revenue"].sum()
 
     st.metric("💰 Total Additional Revenue Potential", f"${total_additional:,.0f}")
-    df['non_enrolled'] = (hs['admitted'] - hs['enrolled']).clip(lower=0)
+    df['non_enrolled'] = (df['admitted'] - df['enrolled']).clip(lower=0)
 
     df['avg_semesters_lost'] = (
-        hs['money_lost'] /
-        (hs['non_enrolled'] * TUITION_PER_SEM)
+        df['money_lost'] /
+        (df['non_enrolled'] * TUITION_PER_SEM)
     )
     
     df['avg_semesters_lost'] = df['avg_semesters_lost'].fillna(0)
@@ -144,7 +144,7 @@ else:
     ].max()
     
     df['max_possible_enrolled'] = (
-        hs['admitted'] * MAX_REALISTIC_YIELD
+        df['admitted'] * MAX_REALISTIC_YIELD
     )
     
     df['additional_students_realistic'] = (
@@ -236,6 +236,7 @@ else:
         st.write(f"🎓 Estimated Enrolled Growth: {enroll_growth*100:.2f}%")
     else:
         st.warning("Not enough historical data for projection.")
+
 
 
 
