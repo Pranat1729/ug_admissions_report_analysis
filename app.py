@@ -128,7 +128,46 @@ else:
     total_additional = additional_revenue_hs["additional_revenue"].sum()
 
     st.metric("💰 Total Additional Revenue Potential", f"${total_additional:,.0f}")
-    st.metric("Total Historical Money Lost:", f"${df['money_lost'].sum():,.0f}")
+    hs['non_enrolled'] = (hs['admitted'] - hs['enrolled']).clip(lower=0)
+
+    hs['avg_semesters_lost'] = (
+        hs['money_lost'] /
+        (hs['non_enrolled'] * TUITION_PER_SEM)
+    )
+    
+    hs['avg_semesters_lost'] = hs['avg_semesters_lost'].fillna(0)
+    MIN_ADMITS = 20  # or whatever threshold you used before
+    
+    MAX_REALISTIC_YIELD = hs.loc[
+        hs['admitted'] >= MIN_ADMITS,
+        'yield'
+    ].max()
+    
+    hs['max_possible_enrolled'] = (
+        hs['admitted'] * MAX_REALISTIC_YIELD
+    )
+    
+    hs['additional_students_realistic'] = (
+        hs['max_possible_enrolled'] - hs['enrolled']
+    ).clip(lower=0)
+    
+    hs['revenue_gap_realistic'] = (
+        hs['additional_students_realistic']
+        * hs['avg_semesters_lost']   # must exist in your aggregated file
+        * TUITION_PER_SEM
+    )
+    
+    hs['revenue_gap_realistic'] = (
+        hs['money_lost']
+        * (hs['additional_students_realistic'] / 
+           (hs['admitted'] - hs['enrolled']).replace(0, np.nan))
+    ).fillna(0)
+    
+    #print("🎯 Realistic Revenue Opportunity (0.6 Ceiling)",
+    #f"${hs['revenue_gap_realistic'].sum():,.0f}")
+
+    st.metric("🎯 Realistic Revenue Opportunity (0.6 Ceiling)",
+    f"${hs['revenue_gap_realistic'].sum():,.0f}")
     st.dataframe(semester_yield)
 
     # ----------------------------
@@ -197,6 +236,7 @@ else:
         st.write(f"🎓 Estimated Enrolled Growth: {enroll_growth*100:.2f}%")
     else:
         st.warning("Not enough historical data for projection.")
+
 
 
 
