@@ -128,6 +128,7 @@ else:
     total_additional = additional_revenue_hs["additional_revenue"].sum()
 
     st.metric("💰 Total Additional Revenue Potential", f"${total_additional:,.0f}")
+    st.metric("Total Historical Money Lost:", f"${hs['money_lost'].sum():,.0f}")
     st.dataframe(semester_yield)
 
     # ----------------------------
@@ -196,6 +197,7 @@ else:
         st.write(f"🎓 Estimated Enrolled Growth: {enroll_growth*100:.2f}%")
     else:
         st.warning("Not enough historical data for projection.")
+
 
 
 
