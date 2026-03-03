@@ -156,7 +156,7 @@ if not df_term.empty:
 # ----------------------------
 # FILTER BY RECRUITMENT CATEGORY
 # ----------------------------
-if "Recruitment_Category" in df_term.columns:
+if "Recruitment_Category" in df_school.columns:
     category_options = ["All"] + sorted(df_term["Recruitment_Category"].dropna().unique())
     selected_category = st.selectbox("Select Recruitment Category", category_options)
 
@@ -243,6 +243,7 @@ if not df_term.empty:
         st.write(f"🎓 Estimated Enrolled Growth: {enroll_growth*100:.2f}%")
     else:
         st.warning("Not enough historical data for projection.")
+
 
 
 
