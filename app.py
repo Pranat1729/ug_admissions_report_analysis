@@ -130,6 +130,29 @@ if not df_term.empty:
     st.header(f"📅 {dataset_type} - Term-level Yield & Revenue")
     st.metric("💰 Total Additional Revenue Potential", f"${total_additional:,.0f}")
     st.dataframe(semester_yield)
+total_admitted = df_term["admitted"].sum()
+total_enrolled = df_term["enrolled"].sum()
+
+current_yield = total_enrolled / total_admitted if total_admitted > 0 else 0
+
+# ----------------------------
+# REALISTIC MONEY LOST (based on 60% cap)
+# ----------------------------
+if not df_term.empty:
+    df_term["max_realistic_enrolled"] = df_term["admitted"] * MAX_HISTORICAL_YIELD
+    
+    df_term["realistic_gap"] = (
+        df_term["max_realistic_enrolled"] - df_term["enrolled"]
+    ).clip(lower=0)
+    
+    df_term["realistic_money_lost"] = (
+        df_term["realistic_gap"]
+        * df_term["semesters_lost"]
+        * TUITION_PER_SEM
+    )
+    
+    total_realistic_lost = df_term["realistic_money_lost"].sum()
+    st.metric("💰 Total Money Lost(with a historical max yield of 0.6)", f"${total_realistic_lost:,.0f}")
 
 # ----------------------------
 # PROJECTIONS (can merge term-level per school)
@@ -185,3 +208,4 @@ if not df_term.empty:
         st.write(f"🎓 Estimated Enrolled Growth: {enroll_growth*100:.2f}%")
     else:
         st.warning("Not enough historical data for projection.")
+
