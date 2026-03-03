@@ -139,7 +139,7 @@ current_yield = total_enrolled / total_admitted if total_admitted > 0 else 0
 # REALISTIC MONEY LOST (based on 60% cap)
 # ----------------------------
 if not df_term.empty:
-    df_term["max_realistic_enrolled"] = df_term["admitted"] * MAX_HISTORICAL_YIELD
+    df_term["max_realistic_enrolled"] = df_term["admitted"] * 0.6
     
     df_term["realistic_gap"] = (
         df_term["max_realistic_enrolled"] - df_term["enrolled"]
@@ -208,4 +208,5 @@ if not df_term.empty:
         st.write(f"🎓 Estimated Enrolled Growth: {enroll_growth*100:.2f}%")
     else:
         st.warning("Not enough historical data for projection.")
+
 
