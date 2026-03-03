@@ -187,7 +187,7 @@ if not df_filtered.empty:
     )
     
     total_realistic_lost = df_filtered["realistic_money_lost"].sum()
-    st.metric("💰 Total Money Lost(with a historical max yield of 0.6) for the chosen category", f"${total_realistic_lost:,.0f})
+    st.metric("💰 Total Money Lost(with a historical max yield of 0.6) for the chosen category", f"${total_realistic_lost:,.0f}")
 
 # ----------------------------
 # PROJECTIONS (can merge term-level per school)
@@ -243,6 +243,7 @@ if not df_term.empty:
         st.write(f"🎓 Estimated Enrolled Growth: {enroll_growth*100:.2f}%")
     else:
         st.warning("Not enough historical data for projection.")
+
 
 
 
