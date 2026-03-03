@@ -185,7 +185,7 @@ if "Recruitment_Category" in df_term.columns:
         ].copy()
     else:
         df_filtered = df_term.copy()
-    st.metric("💰 Total Money Lost(with a historical max yield of 0.6) for the chosen category", f"${total_realistic_lost:,.0f}")
+  
 
 else:
     df_filtered = df_term.copy()
@@ -266,6 +266,7 @@ if not df_term.empty:
         st.write(f"🎓 Estimated Enrolled Growth: {enroll_growth*100:.2f}%")
     else:
         st.warning("Not enough historical data for projection.")
+
 
 
 
