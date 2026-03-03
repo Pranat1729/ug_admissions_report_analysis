@@ -190,7 +190,7 @@ if "Recruitment_Category" in df_term.columns:
 else:
     df_filtered = df_term.copy()
     
-if not df_filered.empty:
+if not df_filtered.empty:
     df_filtered["max_realistic_enrolled"] = (
     df_filtered["admitted"] * MAX_YIELD
     )
@@ -266,6 +266,7 @@ if not df_term.empty:
         st.write(f"🎓 Estimated Enrolled Growth: {enroll_growth*100:.2f}%")
     else:
         st.warning("Not enough historical data for projection.")
+
 
 
 
