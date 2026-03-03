@@ -192,7 +192,7 @@ else:
     
 if not df_filtered.empty:
     df_filtered["max_realistic_enrolled"] = (
-    df_filtered["admitted"] * MAX_YIELD
+    df_filtered["admitted"] * 0.6
     )
 
     df_filtered["realistic_gap"] = (
@@ -266,6 +266,7 @@ if not df_term.empty:
         st.write(f"🎓 Estimated Enrolled Growth: {enroll_growth*100:.2f}%")
     else:
         st.warning("Not enough historical data for projection.")
+
 
 
 
