@@ -153,6 +153,41 @@ if not df_term.empty:
     
     total_realistic_lost = df_term["realistic_money_lost"].sum()
     st.metric("💰 Total Money Lost(with a historical max yield of 0.6)", f"${total_realistic_lost:,.0f}")
+# ----------------------------
+# FILTER BY RECRUITMENT CATEGORY
+# ----------------------------
+if "Recruitment_Category" in df_term.columns:
+    category_options = ["All"] + sorted(df_term["Recruitment_Category"].dropna().unique())
+    selected_category = st.selectbox("Select Recruitment Category", category_options)
+
+    if selected_category != "All":
+        df_filtered = df_term[df_term["Recruitment_Category"] == selected_category].copy()
+    else:
+        df_filtered = df_term.copy()
+else:
+    df_filtered = df_term.copy()
+
+if not df_filtered.empty:
+    df_filtered["semesters_lost"] = df_filtered["ADMIT_TERM"].map(semesters_lost_map)
+
+    total_admitted = df_filtered["admitted"].sum()
+    total_enrolled = df_filtered["enrolled"].sum()
+    
+    current_yield = total_enrolled / total_admitted if total_admitted > 0 else 0
+    
+    df_filtered["max_realistic_enrolled"] = df_filtered["admitted"] * MAX_HISTORICAL_YIELD
+    df_filtered["realistic_gap"] = (
+        df_filtered["max_realistic_enrolled"] - df_filtered["enrolled"]
+    ).clip(lower=0)
+    
+    df_filtered["realistic_money_lost"] = (
+        df_filtered["realistic_gap"]
+        * df_filtered["semesters_lost"]
+        * TUITION_PER_SEM
+    )
+    
+    total_realistic_lost = df_filtered["realistic_money_lost"].sum()
+    st.metric("💰 Total Money Lost(with a historical max yield of 0.6) for the chosen category", f"${total_realistic_lost:,.0f})
 
 # ----------------------------
 # PROJECTIONS (can merge term-level per school)
@@ -208,5 +243,6 @@ if not df_term.empty:
         st.write(f"🎓 Estimated Enrolled Growth: {enroll_growth*100:.2f}%")
     else:
         st.warning("Not enough historical data for projection.")
+
 
 
