@@ -190,6 +190,28 @@ if "Recruitment_Category" in df_term.columns:
 else:
     df_filtered = df_term.copy()
     
+if not df_filered.empty:
+    df_filtered["max_realistic_enrolled"] = (
+    df_filtered["admitted"] * MAX_YIELD
+    )
+
+    df_filtered["realistic_gap"] = (
+        df_filtered["max_realistic_enrolled"]
+        - df_filtered["enrolled"]
+    ).clip(lower=0)
+    
+    df_filtered["realistic_money_lost"] = (
+        df_filtered["realistic_gap"]
+        * df_filtered["semesters_lost"]
+        * TUITION_PER_SEM
+    )
+    
+    total_loss = df_filtered["realistic_money_lost"].sum()
+    st.metric(
+    f"💰 Total Money Lost ({selected_category})",
+    f"${total_loss:,.0f}"
+    )
+    
 # ----------------------------
 # PROJECTIONS (can merge term-level per school)
 # ----------------------------
@@ -244,6 +266,7 @@ if not df_term.empty:
         st.write(f"🎓 Estimated Enrolled Growth: {enroll_growth*100:.2f}%")
     else:
         st.warning("Not enough historical data for projection.")
+
 
 
 
