@@ -8,9 +8,6 @@ if not st.session_state.get("logged_in", False):
     st.warning("Please log in from the Home page.")
     st.stop()
 
-# ══════════════════════════════════════════════
-# MONGODB
-# ══════════════════════════════════════════════
 @st.cache_resource
 def get_db():
     client = MongoClient(st.secrets["MONGO_URI"])
@@ -18,9 +15,7 @@ def get_db():
 
 db = get_db()
 
-# ══════════════════════════════════════════════
-# HELPERS
-# ══════════════════════════════════════════════
+
 @st.cache_data(ttl=600)
 def load_data(school_col, term_col):
     df_school = pd.DataFrame(list(db[school_col].find({}, {"_id": 0})))
@@ -64,9 +59,7 @@ def merge_term_category(df_term, hs_school, name_field):
         how="left"
     )
 
-# ══════════════════════════════════════════════
-# SIDEBAR
-# ══════════════════════════════════════════════
+
 with st.sidebar:
     st.title("📊 Recruitment Analytics")
     st.success(f"Logged in as **{st.session_state.username}**")
@@ -82,9 +75,7 @@ with st.sidebar:
     st.markdown("---")
     st.caption("Bugs? pranat32@gmail.com")
 
-# ══════════════════════════════════════════════
-# PAGE
-# ══════════════════════════════════════════════
+
 st.title("📊 Recruitment Analytics Dashboard")
 
 dataset_type = st.selectbox("Select Dataset Type", ["Freshmen", "Transfers"])
@@ -105,13 +96,13 @@ if df_school.empty:
 if df_term.empty:
     st.warning(f"{dataset_type} Term-level collection is empty!")
 
-# ── School-level ──────────────────────────────
+
 if not df_school.empty:
     hs_school = process_school_data(df_school)
     st.header(f"🏫 {dataset_type} - School-level Analysis")
     st.dataframe(hs_school)
 
-# ── Term-level ────────────────────────────────
+
 if not df_term.empty:
     TUITION_PER_SEM    = 3465
     MAX_YIELD          = 0.6
@@ -153,7 +144,7 @@ if not df_term.empty:
         if not df_filtered.empty:
             st.metric(f"💰 Total Money Lost ({selected_category})", f"${df_filtered['realistic_money_lost'].sum():,.0f}")
 
-# ── Projections ───────────────────────────────
+
 if not df_term.empty:
     df_term["Year"] = df_term["ADMIT_TERM"].map({
         1229:2022, 1232:2023, 1239:2023,
