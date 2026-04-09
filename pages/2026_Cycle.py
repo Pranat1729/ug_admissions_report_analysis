@@ -9,9 +9,7 @@ if not st.session_state.get("logged_in", False):
     st.warning("Please log in from the Home page.")
     st.stop()
 
-# ══════════════════════════════════════════════
-# MONGODB
-# ══════════════════════════════════════════════
+
 @st.cache_resource
 def get_db():
     client = MongoClient(st.secrets["MONGO_URI"])
