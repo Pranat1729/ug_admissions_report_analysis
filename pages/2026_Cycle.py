@@ -97,7 +97,62 @@ else:
 
 dedup_26 = df_26.drop_duplicates(subset=school_col_26).copy()
 
+### STH NEW #########
 
+if not is_fresh:
+    st.markdown("### 🎯 College Type Filter")
+
+    filter_mode = st.radio(
+        "Filter Colleges",
+        ["All", "Community Colleges Only"],
+        horizontal=True
+    )
+
+    if filter_mode == "Community Colleges Only":
+
+        
+        patterns = [
+            "community college",
+            "comm college",
+            "cc",
+            "c.c.",
+            "county college"
+        ]
+
+        def is_community_college(name):
+            if pd.isna(name):
+                return False
+            name = name.lower()
+
+          
+            if any(p in name for p in patterns):
+                return True
+
+           
+            words = name.split()
+            if any(word.endswith("cc") and len(word) <= 6 for word in words):
+                return True
+
+            return False
+
+        dedup_26 = dedup_26[
+            dedup_26[school_col_26].apply(is_community_college)
+        ].copy()
+
+        st.success(f"Showing {len(dedup_26)} community colleges")
+
+        
+        with st.expander("📋 View Detected Community Colleges"):
+            st.dataframe(
+                dedup_26[[school_col_26]]
+                .drop_duplicates()
+                .sort_values(by=school_col_26)
+                .reset_index(drop=True),
+                use_container_width=True
+            )
+
+    st.markdown("---")
+    ########
 dedup_26['Expected_Money_Loss'] = (dedup_26['MATRICULATED_COUNT']-dedup_26['ADMITTED_COUNT'])*2*3465*0.5
 dedup_26["Remaining_Admitted"]               = dedup_26["ADMITTED_COUNT"] - dedup_26["MATRICULATED_COUNT"]
 dedup_26["Expected_Additional_Matriculated"]  = dedup_26["Remaining_Admitted"] * dedup_26["MATRIC_PROB"]
