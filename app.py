@@ -1,5 +1,8 @@
 import streamlit as st
 from pymongo import MongoClient
+import pandas as pd
+import numpy as np
+import plotly.graph_objects as go
 
 st.set_page_config(page_title="Recruitment Analytics", layout="wide")
 
@@ -36,11 +39,7 @@ st.markdown("Use the sidebar to navigate between pages.")
 st.markdown("- **🏫 Historical Analysis** — school-level Bayesian ROI, yield simulation, projections")
 st.markdown("- **🔭 2026 Cycle** — upload 2026 CSV for matriculation, admit/yield gap, programs")
 
-import streamlit as st
-import pandas as pd
-import numpy as np
-import plotly.graph_objects as go
-from pymongo import MongoClient
+
 
 if not st.session_state.get("logged_in", False):
     st.warning("Please log in from the Home page.")
