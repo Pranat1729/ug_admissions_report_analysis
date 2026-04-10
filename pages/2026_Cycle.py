@@ -81,7 +81,23 @@ if "Recruitment_Category" not in df_26.columns:
 else:
     df_26["Recruitment_Category"] = df_26["Recruitment_Category"].fillna("Unclassified")
 
-dedup_26 = df_26.drop_duplicates(subset=school_col_26).copy()
+# ================= PROPER AGGREGATION (NO EMPLID) =================
+agg_dict = {
+    "ADMITTED_COUNT": "sum",
+    "MATRICULATED_COUNT": "sum",
+    "MATRIC_PROB": "mean",
+    "ADMIT_RATE": "mean",
+    "YIELD_RATE": "mean",
+    "MOST_COMMON_PROGRAM_26": "first",
+    "Recruitment_Category": "first",
+    "Hist_Category": "first"
+}
+
+dedup_26 = (
+    df_26.groupby(school_col_26)
+         .agg(agg_dict)
+         .reset_index()
+)
 
 # ================= COMMUNITY COLLEGE DATA =================
 dedup_cc = None
@@ -159,7 +175,7 @@ def render_dashboard(df, title=""):
     )
     st.plotly_chart(fig_stack, use_container_width=True)
 
-    # GAP (PRETTY)
+    # GAP
     st.markdown("## 📉 Admit vs Yield")
 
     df_gap = df.copy()
@@ -168,11 +184,11 @@ def render_dashboard(df, title=""):
     fig_gap = go.Figure()
     fig_gap.add_trace(go.Bar(x=df_gap[school_col_26], y=df_gap["ADMIT_RATE"], name="Admit Rate"))
     fig_gap.add_trace(go.Bar(x=df_gap[school_col_26], y=df_gap["YIELD_RATE"], name="Yield Rate"))
-
     fig_gap.update_layout(barmode="group", xaxis_tickangle=-45)
+
     st.plotly_chart(fig_gap, use_container_width=True)
 
-    # PROGRAMS (PRETTY)
+    # PROGRAMS
     st.markdown("## 🎓 Programs")
 
     prog = df.groupby("MOST_COMMON_PROGRAM_26")["Total_Expected_Matriculated"].sum().reset_index()
@@ -186,6 +202,7 @@ def render_dashboard(df, title=""):
         text_auto=".1f"
     )
     fig_prog.update_layout(xaxis_tickangle=-45)
+
     st.plotly_chart(fig_prog, use_container_width=True)
 
     # TABLE
