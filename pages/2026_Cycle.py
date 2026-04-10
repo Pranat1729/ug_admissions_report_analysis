@@ -88,7 +88,6 @@ dedup_cc = None
 
 if not is_fresh:
     st.markdown("### 🎯 Community College Analysis")
-
     show_cc = st.checkbox("Show Community College Analysis")
 
     if show_cc:
@@ -102,52 +101,103 @@ if not is_fresh:
 
         dedup_cc = dedup_26[dedup_26[school_col_26].apply(is_cc)].copy()
 
-        st.success(f"{len(dedup_cc)} community colleges detected")
-
-# ================= COMMON CALCULATIONS =================
-def compute_metrics(df):
+# ================= METRICS =================
+def compute(df):
     df['Expected_Money_Loss'] = (df['MATRICULATED_COUNT']-df['ADMITTED_COUNT'])*2*3465*0.5
     df["Remaining_Admitted"] = df["ADMITTED_COUNT"] - df["MATRICULATED_COUNT"]
     df["Expected_Additional_Matriculated"] = df["Remaining_Admitted"] * df["MATRIC_PROB"]
     df["Total_Expected_Matriculated"] = df["MATRICULATED_COUNT"] + df["Expected_Additional_Matriculated"]
     return df
 
-dedup_26 = compute_metrics(dedup_26)
+dedup_26 = compute(dedup_26)
 if dedup_cc is not None:
-    dedup_cc = compute_metrics(dedup_cc)
+    dedup_cc = compute(dedup_cc)
 
-# ================= FUNCTION TO RENDER DASHBOARD =================
-def render_dashboard(df, title_suffix=""):
-    st.markdown(f"## 📋 Summary Metrics {title_suffix}")
+# ================= DASHBOARD FUNCTION =================
+def render_dashboard(df, title=""):
 
-    c1,c2,c3,c4 = st.columns(4)
-    c1.metric("Admitted", f"{df['ADMITTED_COUNT'].sum():,.0f}")
-    c2.metric("Matriculated", f"{df['MATRICULATED_COUNT'].sum():,.0f}")
-    c3.metric("Expected Add", f"{df['Expected_Additional_Matriculated'].sum():,.1f}")
+    st.markdown(f"# {title}")
+
+    # SUMMARY
+    st.markdown("## 📋 Summary Metrics")
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("Total Admitted", f"{df['ADMITTED_COUNT'].sum():,.0f}")
+    c2.metric("Already Matriculated", f"{df['MATRICULATED_COUNT'].sum():,.0f}")
+    c3.metric("Expected Additional", f"{df['Expected_Additional_Matriculated'].sum():,.1f}")
     c4.metric("Total Expected", f"{df['Total_Expected_Matriculated'].sum():,.1f}")
+    st.metric("💸 Expected Money Loss", f"${df['Expected_Money_Loss'].sum():,.0f}")
 
-    st.metric("💸 Money Loss", f"${df['Expected_Money_Loss'].sum():,.0f}")
+    st.markdown("---")
 
-    st.markdown("## 🏷️ Category Analysis")
-    cat = df.groupby("Recruitment_Category")["Total_Expected_Matriculated"].sum().reset_index()
-    st.plotly_chart(px.bar(cat, x="Recruitment_Category", y="Total_Expected_Matriculated"), use_container_width=True)
+    # CATEGORY (PRETTY)
+    st.markdown("## 🏷️ Matriculation by Category")
 
+    cat = df.groupby("Recruitment_Category").agg(
+        Already=("MATRICULATED_COUNT","sum"),
+        Additional=("Expected_Additional_Matriculated","sum"),
+        Total=("Total_Expected_Matriculated","sum")
+    ).reset_index()
+
+    fig = px.bar(
+        cat,
+        x="Recruitment_Category",
+        y="Total",
+        color="Recruitment_Category",
+        text=cat["Total"].apply(lambda x: f"{x:.0f}"),
+        color_discrete_sequence=px.colors.qualitative.Set2,
+    )
+    fig.update_traces(textposition="outside")
+    fig.update_layout(showlegend=False)
+    st.plotly_chart(fig, use_container_width=True)
+
+    fig_stack = px.bar(
+        cat,
+        x="Recruitment_Category",
+        y=["Already","Additional"],
+        barmode="stack",
+        color_discrete_map={"Already":"#2ecc71","Additional":"#3498db"}
+    )
+    st.plotly_chart(fig_stack, use_container_width=True)
+
+    # GAP (PRETTY)
     st.markdown("## 📉 Admit vs Yield")
+
     df_gap = df.copy()
     df_gap["gap"] = df_gap["ADMIT_RATE"] - df_gap["YIELD_RATE"]
-    st.plotly_chart(px.bar(df_gap.head(15), x=school_col_26, y="gap"), use_container_width=True)
 
+    fig_gap = go.Figure()
+    fig_gap.add_trace(go.Bar(x=df_gap[school_col_26], y=df_gap["ADMIT_RATE"], name="Admit Rate"))
+    fig_gap.add_trace(go.Bar(x=df_gap[school_col_26], y=df_gap["YIELD_RATE"], name="Yield Rate"))
+
+    fig_gap.update_layout(barmode="group", xaxis_tickangle=-45)
+    st.plotly_chart(fig_gap, use_container_width=True)
+
+    # PROGRAMS (PRETTY)
     st.markdown("## 🎓 Programs")
-    prog = df.groupby("MOST_COMMON_PROGRAM_26")["Total_Expected_Matriculated"].sum().reset_index()
-    st.plotly_chart(px.bar(prog.head(10), x="MOST_COMMON_PROGRAM_26", y="Total_Expected_Matriculated"), use_container_width=True)
 
+    prog = df.groupby("MOST_COMMON_PROGRAM_26")["Total_Expected_Matriculated"].sum().reset_index()
+
+    fig_prog = px.bar(
+        prog.sort_values("Total_Expected_Matriculated", ascending=False).head(10),
+        x="MOST_COMMON_PROGRAM_26",
+        y="Total_Expected_Matriculated",
+        color="Total_Expected_Matriculated",
+        color_continuous_scale="Blues",
+        text_auto=".1f"
+    )
+    fig_prog.update_layout(xaxis_tickangle=-45)
+    st.plotly_chart(fig_prog, use_container_width=True)
+
+    # TABLE
     st.markdown("## 🏫 Table")
-    st.dataframe(df.sort_values("Total_Expected_Matriculated", ascending=False), use_container_width=True)
+    st.dataframe(
+        df.sort_values("Total_Expected_Matriculated", ascending=False),
+        use_container_width=True
+    )
 
 # ================= RENDER =================
-render_dashboard(dedup_26)
+render_dashboard(dedup_26, "All Transfers / Dataset")
 
 if dedup_cc is not None and not dedup_cc.empty:
     st.markdown("---")
-    st.markdown("# 🏫 Community College Dashboard")
-    render_dashboard(dedup_cc, "(Community Colleges)")
+    render_dashboard(dedup_cc, "Community Colleges Only")
