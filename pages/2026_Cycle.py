@@ -39,15 +39,19 @@ def load_category_lookup(is_fresh: bool) -> dict:
     roi_thresh = raw["bayes_ROI"].mean()
 
     def classify(row):
-        if row["applicants"] >= vol_thresh and row["bayes_ROI"] >= roi_thresh: return "Flagship"
-        elif row["applicants"] < vol_thresh and row["bayes_ROI"] >= roi_thresh: return "Fringe Gem"
-        elif row["applicants"] >= vol_thresh and row["bayes_ROI"] < roi_thresh: return "Over-recruited"
-        else: return "Low Priority"
+        if row["applicants"] >= vol_thresh and row["bayes_ROI"] >= roi_thresh:
+            return "Flagship"
+        elif row["applicants"] < vol_thresh and row["bayes_ROI"] >= roi_thresh:
+            return "Fringe Gem"
+        elif row["applicants"] >= vol_thresh and row["bayes_ROI"] < roi_thresh:
+            return "Over-recruited"
+        else:
+            return "Low Priority"
 
     raw["Recruitment_Category"] = raw.apply(classify, axis=1)
     return dict(zip(raw[name_field], raw["Recruitment_Category"]))
 
-# Sidebar
+# ================= SIDEBAR =================
 with st.sidebar:
     st.title("📊 Recruitment Analytics")
     st.success(f"Logged in as **{st.session_state.username}**")
@@ -60,7 +64,7 @@ with st.sidebar:
         st.session_state.logged_in = False
         st.rerun()
 
-# Main
+# ================= MAIN =================
 st.title("🔭 2026 Cycle Analysis")
 
 dataset_type = st.selectbox("Select Dataset Type", ["Freshmen", "Transfers"])
@@ -81,9 +85,25 @@ if "Recruitment_Category" not in df_26.columns:
 else:
     df_26["Recruitment_Category"] = df_26["Recruitment_Category"].fillna("Unclassified")
 
-dedup_26 = df_26.drop_duplicates(subset=school_col_26).copy()
+# ================= PROPER AGGREGATION (NO EMPLID) =================
+agg_dict = {
+    "ADMITTED_COUNT": "sum",
+    "MATRICULATED_COUNT": "sum",
+    "MATRIC_PROB": "mean",
+    "ADMIT_RATE": "mean",
+    "YIELD_RATE": "mean",
+    "MOST_COMMON_PROGRAM_26": "first",
+    "Recruitment_Category": "first",
+    "Hist_Category": "first"
+}
 
-# ================= COMMUNITY COLLEGE DATA =================
+dedup_26 = (
+    df_26.groupby(school_col_26)
+         .agg(agg_dict)
+         .reset_index()
+)
+
+# ================= COMMUNITY COLLEGES =================
 dedup_cc = None
 
 if not is_fresh:
@@ -94,48 +114,51 @@ if not is_fresh:
         patterns = ["community college", "comm college", "cc", "c.c.", "county college"]
 
         def is_cc(name):
-            if pd.isna(name): return False
+            if pd.isna(name):
+                return False
             name = name.lower()
-            if any(p in name for p in patterns): return True
+            if any(p in name for p in patterns):
+                return True
             return any(w.endswith("cc") and len(w) <= 6 for w in name.split())
 
         dedup_cc = dedup_26[dedup_26[school_col_26].apply(is_cc)].copy()
 
 # ================= METRICS =================
 def compute(df):
-    df['Expected_Money_Loss'] = (df['MATRICULATED_COUNT']-df['ADMITTED_COUNT'])*2*3465*0.5
+    df['Expected_Money_Loss'] = (df['MATRICULATED_COUNT'] - df['ADMITTED_COUNT']) * 2 * 3465 * 0.5
     df["Remaining_Admitted"] = df["ADMITTED_COUNT"] - df["MATRICULATED_COUNT"]
     df["Expected_Additional_Matriculated"] = df["Remaining_Admitted"] * df["MATRIC_PROB"]
-    df["Total_Expected_Matriculated"] = df["MATRICULATED_COUNT"] + df["Expected_Additional_Matriculated"]
+    df["Expected_Matriculation"] = df["MATRICULATED_COUNT"] + df["Expected_Additional_Matriculated"]
     return df
 
 dedup_26 = compute(dedup_26)
 if dedup_cc is not None:
     dedup_cc = compute(dedup_cc)
 
-# ================= DASHBOARD FUNCTION =================
+# ================= DASHBOARD =================
 def render_dashboard(df, title=""):
 
     st.markdown(f"# {title}")
 
-    # SUMMARY
+    # ---------- SUMMARY ----------
     st.markdown("## 📋 Summary Metrics")
     c1, c2, c3, c4 = st.columns(4)
     c1.metric("Total Admitted", f"{df['ADMITTED_COUNT'].sum():,.0f}")
     c2.metric("Already Matriculated", f"{df['MATRICULATED_COUNT'].sum():,.0f}")
     c3.metric("Expected Additional", f"{df['Expected_Additional_Matriculated'].sum():,.1f}")
-    c4.metric("Total Expected", f"{df['Total_Expected_Matriculated'].sum():,.1f}")
+    c4.metric("Expected Matriculation", f"{df['Expected_Matriculation'].sum():,.1f}")
+
     st.metric("💸 Expected Money Loss", f"${df['Expected_Money_Loss'].sum():,.0f}")
 
     st.markdown("---")
 
-    # CATEGORY (PRETTY)
+    # ---------- CATEGORY ----------
     st.markdown("## 🏷️ Matriculation by Category")
 
     cat = df.groupby("Recruitment_Category").agg(
-        Already=("MATRICULATED_COUNT","sum"),
-        Additional=("Expected_Additional_Matriculated","sum"),
-        Total=("Total_Expected_Matriculated","sum")
+        Already=("MATRICULATED_COUNT", "sum"),
+        Additional=("Expected_Additional_Matriculated", "sum"),
+        Total=("Expected_Matriculation", "sum")
     ).reset_index()
 
     fig = px.bar(
@@ -153,45 +176,69 @@ def render_dashboard(df, title=""):
     fig_stack = px.bar(
         cat,
         x="Recruitment_Category",
-        y=["Already","Additional"],
+        y=["Already", "Additional"],
         barmode="stack",
-        color_discrete_map={"Already":"#2ecc71","Additional":"#3498db"}
+        color_discrete_map={"Already": "#2ecc71", "Additional": "#3498db"}
     )
     st.plotly_chart(fig_stack, use_container_width=True)
 
-    # GAP (PRETTY)
+    # ---------- ADMIT vs YIELD ----------
     st.markdown("## 📉 Admit vs Yield")
 
-    df_gap = df.copy()
-    df_gap["gap"] = df_gap["ADMIT_RATE"] - df_gap["YIELD_RATE"]
-
     fig_gap = go.Figure()
-    fig_gap.add_trace(go.Bar(x=df_gap[school_col_26], y=df_gap["ADMIT_RATE"], name="Admit Rate"))
-    fig_gap.add_trace(go.Bar(x=df_gap[school_col_26], y=df_gap["YIELD_RATE"], name="Yield Rate"))
-
+    fig_gap.add_trace(go.Bar(x=df[school_col_26], y=df["ADMIT_RATE"], name="Admit Rate"))
+    fig_gap.add_trace(go.Bar(x=df[school_col_26], y=df["YIELD_RATE"], name="Yield Rate"))
     fig_gap.update_layout(barmode="group", xaxis_tickangle=-45)
+
     st.plotly_chart(fig_gap, use_container_width=True)
 
-    # PROGRAMS (PRETTY)
+    # ---------- PROGRAMS ----------
     st.markdown("## 🎓 Programs")
 
-    prog = df.groupby("MOST_COMMON_PROGRAM_26")["Total_Expected_Matriculated"].sum().reset_index()
+    prog = df.groupby("MOST_COMMON_PROGRAM_26")["Expected_Matriculation"].sum().reset_index()
 
     fig_prog = px.bar(
-        prog.sort_values("Total_Expected_Matriculated", ascending=False).head(10),
+        prog.sort_values("Expected_Matriculation", ascending=False).head(10),
         x="MOST_COMMON_PROGRAM_26",
-        y="Total_Expected_Matriculated",
-        color="Total_Expected_Matriculated",
+        y="Expected_Matriculation",
+        color="Expected_Matriculation",
         color_continuous_scale="Blues",
         text_auto=".1f"
     )
     fig_prog.update_layout(xaxis_tickangle=-45)
+
     st.plotly_chart(fig_prog, use_container_width=True)
 
-    # TABLE
-    st.markdown("## 🏫 Table")
+    # ---------- TOP SCHOOLS ----------
+    st.markdown("## 🏆 Top Schools by Expected Matriculation")
+
+    top_n = st.slider(f"Top N Schools ({title})", 5, 50, 15, key=f"top_{title}")
+
+    top = (
+        df.sort_values("Expected_Matriculation", ascending=False)
+          .head(top_n)
+    )
+
+    fig_top = px.bar(
+        top,
+        x=school_col_26,
+        y="Expected_Matriculation",
+        text=top["Expected_Matriculation"].apply(lambda x: f"{x:.0f}"),
+        color="Expected_Matriculation",
+        color_continuous_scale="Viridis",
+    )
+    fig_top.update_traces(textposition="outside")
+    fig_top.update_layout(xaxis_tickangle=-45)
+
+    st.plotly_chart(fig_top, use_container_width=True)
+
+    st.dataframe(top, use_container_width=True, hide_index=True)
+
+    # ---------- TABLE ----------
+    st.markdown("## 🏫 Full Table")
+
     st.dataframe(
-        df.sort_values("Total_Expected_Matriculated", ascending=False),
+        df.sort_values("Expected_Matriculation", ascending=False),
         use_container_width=True
     )
 
