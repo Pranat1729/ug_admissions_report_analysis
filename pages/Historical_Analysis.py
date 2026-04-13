@@ -98,12 +98,14 @@ if df_term.empty:
     st.warning(f"{dataset_type} Term-level collection is empty!")
 
 
+# ================= SCHOOL LEVEL =================
 if not df_school.empty:
     hs_school = process_school_data(df_school)
     st.header(f"🏫 {dataset_type} - School-level Analysis")
     st.dataframe(hs_school)
 
 
+# ================= TERM LEVEL =================
 if not df_term.empty:
     TUITION_PER_SEM    = 3465
     MAX_YIELD          = 0.6
@@ -117,12 +119,14 @@ if not df_term.empty:
     semester_yield = df_term[
         [name_field, "ADMIT_TERM", "admitted", "enrolled", "semesters_lost"]
     ].copy()
+
     semester_yield = semester_yield[semester_yield["admitted"] > 0]
+
     semester_yield["current_yield"]      = semester_yield["enrolled"] / semester_yield["admitted"]
-    semester_yield["new_yield"]           = (semester_yield["current_yield"] * (1 + relative_increase)).clip(upper=1)
-    semester_yield["expected_enrolled"]   = semester_yield["admitted"] * semester_yield["new_yield"]
+    semester_yield["new_yield"]          = (semester_yield["current_yield"] * (1 + relative_increase)).clip(upper=1)
+    semester_yield["expected_enrolled"]  = semester_yield["admitted"] * semester_yield["new_yield"]
     semester_yield["additional_students"] = semester_yield["expected_enrolled"] - semester_yield["enrolled"]
-    semester_yield["additional_revenue"]  = (
+    semester_yield["additional_revenue"] = (
         semester_yield["additional_students"] * semester_yield["semesters_lost"] * TUITION_PER_SEM
     )
 
@@ -132,37 +136,103 @@ if not df_term.empty:
     st.metric("💰 Total Additional Revenue Potential", f"${total_additional:,.0f}")
     st.dataframe(semester_yield)
 
-    df_term["max_realistic_enrolled"] = df_term["admitted"] * MAX_YIELD
-    df_term["realistic_gap"]          = (df_term["max_realistic_enrolled"] - df_term["enrolled"]).clip(lower=0)
-    df_term["realistic_money_lost"]   = df_term["realistic_gap"] * df_term["semesters_lost"] * TUITION_PER_SEM
-
-    st.metric("💰 Total Money Lost (historical max yield 60%)", f"${df_term['realistic_money_lost'].sum():,.0f}")
-
+    # ================= CATEGORY GRAPH =================
     if "Recruitment_Category" in df_term.columns:
-        category_options  = ["All"] + sorted(df_term["Recruitment_Category"].dropna().unique())
-        selected_category = st.selectbox("Select Recruitment Category", category_options)
-        df_filtered = df_term if selected_category == "All" else df_term[df_term["Recruitment_Category"] == selected_category].copy()
-        if not df_filtered.empty:
-            st.metric(f"💰 Total Money Lost ({selected_category})", f"${df_filtered['realistic_money_lost'].sum():,.0f}")
+        st.markdown("## 🏷️ Enrollment by Category")
+
+        cat = df_term.groupby("Recruitment_Category").agg(
+            enrolled=("enrolled", "sum"),
+            admitted=("admitted", "sum")
+        ).reset_index()
+
+        fig_cat = px.bar(
+            cat,
+            x="Recruitment_Category",
+            y="enrolled",
+            color="Recruitment_Category",
+            text=cat["enrolled"].apply(lambda x: f"{x:.0f}")
+        )
+
+        fig_cat.update_traces(textposition="outside")
+        fig_cat.update_layout(showlegend=False)
+
+        st.plotly_chart(fig_cat, use_container_width=True)
+
+    # ================= MAJOR GRAPH =================
+    if "MOST_COMMON_PROGRAM_26" in df_term.columns:
+        st.markdown("## 🎓 Most Common Majors")
+
+        prog = df_term.groupby("MOST_COMMON_PROGRAM_26").agg(
+            enrolled=("enrolled", "sum")
+        ).reset_index()
+
+        prog = prog.sort_values("enrolled", ascending=False).head(10)
+
+        fig_prog = px.bar(
+            prog,
+            x="MOST_COMMON_PROGRAM_26",
+            y="enrolled",
+            color="enrolled",
+            text=prog["enrolled"].apply(lambda x: f"{x:.0f}")
+        )
+
+        fig_prog.update_traces(textposition="outside")
+        fig_prog.update_layout(xaxis_tickangle=-45)
+
+        st.plotly_chart(fig_prog, use_container_width=True)
+
+    # ================= YIELD GRAPH (WITH FILTER) =================
+    st.markdown("## 🏆 Top Schools by Yield Rate")
+
+    school_yield = df_term.groupby(name_field).agg(
+        admitted=("admitted", "sum"),
+        enrolled=("enrolled", "sum")
+    ).reset_index()
+
+    # 🔥 FILTER APPLIED HERE
+    school_yield = school_yield[
+        (school_yield["admitted"] > 250)
+    ]
+
+    school_yield["yield_rate"] = school_yield["enrolled"] / school_yield["admitted"]
+
+    top_n = st.slider("Top N Schools by Yield", 5, 30, 10)
+
+    top_yield = school_yield.sort_values("yield_rate", ascending=False).head(top_n)
+
+    fig_yield = px.bar(
+        top_yield,
+        x=name_field,
+        y="yield_rate",
+        text=top_yield["yield_rate"].apply(lambda x: f"{x:.2%}"),
+        color="yield_rate"
+    )
+
+    fig_yield.update_traces(textposition="outside")
+    fig_yield.update_layout(xaxis_tickangle=-45)
+
+    st.plotly_chart(fig_yield, use_container_width=True)
 
 
+# ================= PROJECTIONS =================
 if not df_term.empty:
     df_term["Year"] = df_term["ADMIT_TERM"].map({
         1229:2022, 1232:2023, 1239:2023,
         1242:2024, 1249:2024, 1252:2025, 1259:2025
     })
+
     df_term = df_term.dropna(subset=["Year"])
 
     yearly = df_term.groupby([name_field, "Year"]).agg(
         applicants=("admitted", "sum"),
-        admitted  =("admitted", "sum"),
-        enrolled  =("enrolled", "sum"),
+        enrolled=("enrolled", "sum"),
     ).reset_index()
 
     selected_school = st.selectbox(
         f"Select {dataset_type} School for Projection",
         yearly[name_field].unique()
     )
+
     school_data = yearly[yearly[name_field] == selected_school].sort_values("Year")
 
     def calculate_cagr(first, last, years):
@@ -172,170 +242,53 @@ if not df_term.empty:
         return max(min(rate, 0.25), -0.25)
 
     if len(school_data) >= 2:
-        years_diff    = school_data["Year"].iloc[-1] - school_data["Year"].iloc[0]
-        app_growth    = calculate_cagr(school_data["applicants"].iloc[0], school_data["applicants"].iloc[-1], years_diff)
-        enroll_growth = calculate_cagr(school_data["enrolled"].iloc[0],   school_data["enrolled"].iloc[-1],   years_diff)
+        years_diff = school_data["Year"].iloc[-1] - school_data["Year"].iloc[0]
 
-        last_app    = school_data["applicants"].iloc[-1]
+        app_growth = calculate_cagr(
+            school_data["applicants"].iloc[0],
+            school_data["applicants"].iloc[-1],
+            years_diff
+        )
+
+        enroll_growth = calculate_cagr(
+            school_data["enrolled"].iloc[0],
+            school_data["enrolled"].iloc[-1],
+            years_diff
+        )
+
+        last_app = school_data["applicants"].iloc[-1]
         last_enroll = school_data["enrolled"].iloc[-1]
-        future_years   = [school_data["Year"].iloc[-1] + i for i in range(1, 4)]
-        future_apps    = [last_app    * ((1 + app_growth)    ** i) for i in range(1, 4)]
+
+        future_years = [school_data["Year"].iloc[-1] + i for i in range(1, 4)]
+        future_apps = [last_app * ((1 + app_growth) ** i) for i in range(1, 4)]
         future_enrolls = [last_enroll * ((1 + enroll_growth) ** i) for i in range(1, 4)]
 
         fig_app = go.Figure()
-        fig_app.add_trace(go.Scatter(x=school_data["Year"], y=school_data["applicants"],
-                                      mode="lines+markers", name="Historical Applicants"))
-        fig_app.add_trace(go.Scatter(x=future_years, y=future_apps,
-                                      mode="lines+markers", name="Projected Applicants",
-                                      line=dict(dash="dash")))
+        fig_app.add_trace(go.Scatter(
+            x=school_data["Year"], y=school_data["applicants"],
+            mode="lines+markers", name="Historical Applicants"
+        ))
+        fig_app.add_trace(go.Scatter(
+            x=future_years, y=future_apps,
+            mode="lines+markers", name="Projected Applicants",
+            line=dict(dash="dash")
+        ))
         st.plotly_chart(fig_app, use_container_width=True)
 
         fig_enroll = go.Figure()
-        fig_enroll.add_trace(go.Scatter(x=school_data["Year"], y=school_data["enrolled"],
-                                         mode="lines+markers", name="Historical Enrolled"))
-        fig_enroll.add_trace(go.Scatter(x=future_years, y=future_enrolls,
-                                         mode="lines+markers", name="Projected Enrolled",
-                                         line=dict(dash="dash")))
+        fig_enroll.add_trace(go.Scatter(
+            x=school_data["Year"], y=school_data["enrolled"],
+            mode="lines+markers", name="Historical Enrolled"
+        ))
+        fig_enroll.add_trace(go.Scatter(
+            x=future_years, y=future_enrolls,
+            mode="lines+markers", name="Projected Enrolled",
+            line=dict(dash="dash")
+        ))
         st.plotly_chart(fig_enroll, use_container_width=True)
 
         st.write(f"📊 Estimated Applicant Growth: {app_growth*100:.2f}%")
         st.write(f"🎓 Estimated Enrolled Growth: {enroll_growth*100:.2f}%")
+
     else:
         st.warning("Not enough historical data for projection.")
-
-
-# ================================================================
-# 26-CYCLE CHARTS (from code piece 1)
-# Requires school-level data with MATRIC_PROB, ADMITTED_COUNT,
-# MATRICULATED_COUNT, ADMIT_RATE, YIELD_RATE, MOST_COMMON_PROGRAM_26
-# ================================================================
-st.markdown("---")
-st.header(f"🔭 26-Cycle Matriculation Analysis")
-
-up_key   = "up_fresh_p2" if dataset_type == "Freshmen" else "up_trans_p2"
-uploaded = st.file_uploader(
-    f"Upload {dataset_type}_26_categorized.csv",
-    type="csv",
-    key=up_key
-)
-
-if uploaded is not None:
-    df_26 = pd.read_csv(uploaded)
-    school_col_26 = "LAST_SCH_HS_DESCR" if dataset_type == "Freshmen" else "LAST_COL_UGRD_DESCR"
-
-    # Attach hist category if available
-    if not df_school.empty:
-        cat_lookup = dict(zip(hs_school[name_field], hs_school["Recruitment_Category"]))
-        df_26["Hist_Category"] = df_26[school_col_26].map(cat_lookup).fillna("Unclassified")
-        if "Recruitment_Category" not in df_26.columns:
-            df_26["Recruitment_Category"] = df_26["Hist_Category"]
-        else:
-            df_26["Recruitment_Category"] = df_26["Recruitment_Category"].fillna("Unclassified")
-
-    # Dedup to one row per school
-    dedup_26 = df_26.drop_duplicates(subset=school_col_26).copy()
-
-    # Compute matriculation fields (same logic as code piece 1)
-    if "MATRIC_PROB" in dedup_26.columns:
-        dedup_26["Remaining_Admitted"]             = dedup_26["ADMITTED_COUNT"] - dedup_26["MATRICULATED_COUNT"]
-        dedup_26["Expected_Additional_Matriculated"] = dedup_26["Remaining_Admitted"] * dedup_26["MATRIC_PROB"]
-        dedup_26["Expected_Matriculation"]           = dedup_26["MATRICULATED_COUNT"] + dedup_26["Expected_Additional_Matriculated"]
-        dedup_26["Expected_Money_Loss"]              = (dedup_26["MATRICULATED_COUNT"] - dedup_26["ADMITTED_COUNT"]) * 2 * 3465 * 0.5
-
-    # ---------- SUMMARY METRICS ----------
-    st.markdown("### 📋 Summary Metrics")
-    c1, c2, c3, c4 = st.columns(4)
-    c1.metric("Total Admitted",        f"{dedup_26['ADMITTED_COUNT'].sum():,.0f}")
-    c2.metric("Already Matriculated",  f"{dedup_26['MATRICULATED_COUNT'].sum():,.0f}")
-    if "Expected_Additional_Matriculated" in dedup_26.columns:
-        c3.metric("Expected Additional",   f"{dedup_26['Expected_Additional_Matriculated'].sum():,.1f}")
-        c4.metric("Expected Matriculation",f"{dedup_26['Expected_Matriculation'].sum():,.1f}")
-        st.metric("💸 Expected Money Loss", f"${dedup_26['Expected_Money_Loss'].sum():,.0f}")
-
-    st.markdown("---")
-
-    # ---------- CATEGORY: total expected matriculation ----------
-    if "Recruitment_Category" in dedup_26.columns and "Expected_Matriculation" in dedup_26.columns:
-        st.markdown("### 🏷️ Matriculation by Category")
-
-        cat = dedup_26.groupby("Recruitment_Category").agg(
-            Already   =("MATRICULATED_COUNT",              "sum"),
-            Additional=("Expected_Additional_Matriculated","sum"),
-            Total     =("Expected_Matriculation",          "sum")
-        ).reset_index()
-
-        fig_cat = px.bar(
-            cat,
-            x="Recruitment_Category",
-            y="Total",
-            color="Recruitment_Category",
-            text=cat["Total"].apply(lambda x: f"{x:.0f}"),
-            color_discrete_sequence=px.colors.qualitative.Set2,
-        )
-        fig_cat.update_traces(textposition="outside")
-        fig_cat.update_layout(showlegend=False)
-        st.plotly_chart(fig_cat, use_container_width=True)
-
-        # Stacked: already vs additional
-        fig_stack = px.bar(
-            cat,
-            x="Recruitment_Category",
-            y=["Already", "Additional"],
-            barmode="stack",
-            color_discrete_map={"Already": "#2ecc71", "Additional": "#3498db"}
-        )
-        st.plotly_chart(fig_stack, use_container_width=True)
-
-    # ---------- ADMIT VS YIELD ----------
-    if "ADMIT_RATE" in dedup_26.columns and "YIELD_RATE" in dedup_26.columns:
-        st.markdown("### 📉 Admit vs Yield Rate")
-
-        fig_gap = go.Figure()
-        fig_gap.add_trace(go.Bar(x=dedup_26[school_col_26], y=dedup_26["ADMIT_RATE"], name="Admit Rate"))
-        fig_gap.add_trace(go.Bar(x=dedup_26[school_col_26], y=dedup_26["YIELD_RATE"], name="Yield Rate"))
-        fig_gap.update_layout(barmode="group", xaxis_tickangle=-45)
-        st.plotly_chart(fig_gap, use_container_width=True)
-
-    # ---------- PROGRAMS ----------
-    if "MOST_COMMON_PROGRAM_26" in dedup_26.columns and "Expected_Matriculation" in dedup_26.columns:
-        st.markdown("### 🎓 Programs")
-
-        prog = dedup_26.groupby("MOST_COMMON_PROGRAM_26")["Expected_Matriculation"].sum().reset_index()
-        fig_prog = px.bar(
-            prog.sort_values("Expected_Matriculation", ascending=False).head(10),
-            x="MOST_COMMON_PROGRAM_26",
-            y="Expected_Matriculation",
-            color="Expected_Matriculation",
-            color_continuous_scale="Blues",
-            text_auto=".1f"
-        )
-        fig_prog.update_layout(xaxis_tickangle=-45)
-        st.plotly_chart(fig_prog, use_container_width=True)
-
-    # ---------- TOP SCHOOLS ----------
-    if "Expected_Matriculation" in dedup_26.columns:
-        st.markdown("### 🏆 Top Schools by Expected Matriculation")
-
-        top_n = st.slider("Top N Schools", 5, 50, 15, key="top_n_p2")
-        top   = dedup_26.sort_values("Expected_Matriculation", ascending=False).head(top_n)
-
-        fig_top = px.bar(
-            top,
-            x=school_col_26,
-            y="Expected_Matriculation",
-            text=top["Expected_Matriculation"].apply(lambda x: f"{x:.0f}"),
-            color="Expected_Matriculation",
-            color_continuous_scale="Viridis",
-        )
-        fig_top.update_traces(textposition="outside")
-        fig_top.update_layout(xaxis_tickangle=-45)
-        st.plotly_chart(fig_top, use_container_width=True)
-        st.dataframe(top, use_container_width=True, hide_index=True)
-
-    # ---------- FULL TABLE ----------
-    st.markdown("### 🏫 Full Table")
-    sort_col = "Expected_Matriculation" if "Expected_Matriculation" in dedup_26.columns else school_col_26
-    st.dataframe(
-        dedup_26.sort_values(sort_col, ascending=False),
-        use_container_width=True
-    )
