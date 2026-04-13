@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
+import plotly.express as px
 from pymongo import MongoClient
 
 if not st.session_state.get("logged_in", False):
@@ -201,3 +202,140 @@ if not df_term.empty:
         st.write(f"🎓 Estimated Enrolled Growth: {enroll_growth*100:.2f}%")
     else:
         st.warning("Not enough historical data for projection.")
+
+
+# ================================================================
+# 26-CYCLE CHARTS (from code piece 1)
+# Requires school-level data with MATRIC_PROB, ADMITTED_COUNT,
+# MATRICULATED_COUNT, ADMIT_RATE, YIELD_RATE, MOST_COMMON_PROGRAM_26
+# ================================================================
+st.markdown("---")
+st.header(f"🔭 26-Cycle Matriculation Analysis")
+
+up_key   = "up_fresh_p2" if dataset_type == "Freshmen" else "up_trans_p2"
+uploaded = st.file_uploader(
+    f"Upload {dataset_type}_26_categorized.csv",
+    type="csv",
+    key=up_key
+)
+
+if uploaded is not None:
+    df_26 = pd.read_csv(uploaded)
+    school_col_26 = "LAST_SCH_HS_DESCR" if dataset_type == "Freshmen" else "LAST_COL_UGRD_DESCR"
+
+    # Attach hist category if available
+    if not df_school.empty:
+        cat_lookup = dict(zip(hs_school[name_field], hs_school["Recruitment_Category"]))
+        df_26["Hist_Category"] = df_26[school_col_26].map(cat_lookup).fillna("Unclassified")
+        if "Recruitment_Category" not in df_26.columns:
+            df_26["Recruitment_Category"] = df_26["Hist_Category"]
+        else:
+            df_26["Recruitment_Category"] = df_26["Recruitment_Category"].fillna("Unclassified")
+
+    # Dedup to one row per school
+    dedup_26 = df_26.drop_duplicates(subset=school_col_26).copy()
+
+    # Compute matriculation fields (same logic as code piece 1)
+    if "MATRIC_PROB" in dedup_26.columns:
+        dedup_26["Remaining_Admitted"]             = dedup_26["ADMITTED_COUNT"] - dedup_26["MATRICULATED_COUNT"]
+        dedup_26["Expected_Additional_Matriculated"] = dedup_26["Remaining_Admitted"] * dedup_26["MATRIC_PROB"]
+        dedup_26["Expected_Matriculation"]           = dedup_26["MATRICULATED_COUNT"] + dedup_26["Expected_Additional_Matriculated"]
+        dedup_26["Expected_Money_Loss"]              = (dedup_26["MATRICULATED_COUNT"] - dedup_26["ADMITTED_COUNT"]) * 2 * 3465 * 0.5
+
+    # ---------- SUMMARY METRICS ----------
+    st.markdown("### 📋 Summary Metrics")
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("Total Admitted",        f"{dedup_26['ADMITTED_COUNT'].sum():,.0f}")
+    c2.metric("Already Matriculated",  f"{dedup_26['MATRICULATED_COUNT'].sum():,.0f}")
+    if "Expected_Additional_Matriculated" in dedup_26.columns:
+        c3.metric("Expected Additional",   f"{dedup_26['Expected_Additional_Matriculated'].sum():,.1f}")
+        c4.metric("Expected Matriculation",f"{dedup_26['Expected_Matriculation'].sum():,.1f}")
+        st.metric("💸 Expected Money Loss", f"${dedup_26['Expected_Money_Loss'].sum():,.0f}")
+
+    st.markdown("---")
+
+    # ---------- CATEGORY: total expected matriculation ----------
+    if "Recruitment_Category" in dedup_26.columns and "Expected_Matriculation" in dedup_26.columns:
+        st.markdown("### 🏷️ Matriculation by Category")
+
+        cat = dedup_26.groupby("Recruitment_Category").agg(
+            Already   =("MATRICULATED_COUNT",              "sum"),
+            Additional=("Expected_Additional_Matriculated","sum"),
+            Total     =("Expected_Matriculation",          "sum")
+        ).reset_index()
+
+        fig_cat = px.bar(
+            cat,
+            x="Recruitment_Category",
+            y="Total",
+            color="Recruitment_Category",
+            text=cat["Total"].apply(lambda x: f"{x:.0f}"),
+            color_discrete_sequence=px.colors.qualitative.Set2,
+        )
+        fig_cat.update_traces(textposition="outside")
+        fig_cat.update_layout(showlegend=False)
+        st.plotly_chart(fig_cat, use_container_width=True)
+
+        # Stacked: already vs additional
+        fig_stack = px.bar(
+            cat,
+            x="Recruitment_Category",
+            y=["Already", "Additional"],
+            barmode="stack",
+            color_discrete_map={"Already": "#2ecc71", "Additional": "#3498db"}
+        )
+        st.plotly_chart(fig_stack, use_container_width=True)
+
+    # ---------- ADMIT VS YIELD ----------
+    if "ADMIT_RATE" in dedup_26.columns and "YIELD_RATE" in dedup_26.columns:
+        st.markdown("### 📉 Admit vs Yield Rate")
+
+        fig_gap = go.Figure()
+        fig_gap.add_trace(go.Bar(x=dedup_26[school_col_26], y=dedup_26["ADMIT_RATE"], name="Admit Rate"))
+        fig_gap.add_trace(go.Bar(x=dedup_26[school_col_26], y=dedup_26["YIELD_RATE"], name="Yield Rate"))
+        fig_gap.update_layout(barmode="group", xaxis_tickangle=-45)
+        st.plotly_chart(fig_gap, use_container_width=True)
+
+    # ---------- PROGRAMS ----------
+    if "MOST_COMMON_PROGRAM_26" in dedup_26.columns and "Expected_Matriculation" in dedup_26.columns:
+        st.markdown("### 🎓 Programs")
+
+        prog = dedup_26.groupby("MOST_COMMON_PROGRAM_26")["Expected_Matriculation"].sum().reset_index()
+        fig_prog = px.bar(
+            prog.sort_values("Expected_Matriculation", ascending=False).head(10),
+            x="MOST_COMMON_PROGRAM_26",
+            y="Expected_Matriculation",
+            color="Expected_Matriculation",
+            color_continuous_scale="Blues",
+            text_auto=".1f"
+        )
+        fig_prog.update_layout(xaxis_tickangle=-45)
+        st.plotly_chart(fig_prog, use_container_width=True)
+
+    # ---------- TOP SCHOOLS ----------
+    if "Expected_Matriculation" in dedup_26.columns:
+        st.markdown("### 🏆 Top Schools by Expected Matriculation")
+
+        top_n = st.slider("Top N Schools", 5, 50, 15, key="top_n_p2")
+        top   = dedup_26.sort_values("Expected_Matriculation", ascending=False).head(top_n)
+
+        fig_top = px.bar(
+            top,
+            x=school_col_26,
+            y="Expected_Matriculation",
+            text=top["Expected_Matriculation"].apply(lambda x: f"{x:.0f}"),
+            color="Expected_Matriculation",
+            color_continuous_scale="Viridis",
+        )
+        fig_top.update_traces(textposition="outside")
+        fig_top.update_layout(xaxis_tickangle=-45)
+        st.plotly_chart(fig_top, use_container_width=True)
+        st.dataframe(top, use_container_width=True, hide_index=True)
+
+    # ---------- FULL TABLE ----------
+    st.markdown("### 🏫 Full Table")
+    sort_col = "Expected_Matriculation" if "Expected_Matriculation" in dedup_26.columns else school_col_26
+    st.dataframe(
+        dedup_26.sort_values(sort_col, ascending=False),
+        use_container_width=True
+    )
