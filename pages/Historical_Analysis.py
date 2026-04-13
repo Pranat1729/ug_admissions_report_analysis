@@ -135,6 +135,50 @@ if not df_term.empty:
     st.header(f"📅 {dataset_type} - Term-level Yield & Revenue")
     st.metric("💰 Total Additional Revenue Potential", f"${total_additional:,.0f}")
     st.dataframe(semester_yield)
+    st.markdown("## 🔎 School Lookup")
+
+    if not df_school.empty:
+
+        search_name = st.text_input(f"Search {dataset_type} School Name")
+
+        if search_name:
+
+            match = df_school[
+                df_school[name_field].str.lower().str.contains(search_name.lower(), na=False)
+            ]
+
+            if match.empty:
+                st.warning("No matching school found.")
+            else:
+
+                # compute money loss (row-level aggregation)
+                match = match.copy()
+
+                match["Expected_Money_Loss"] = (
+                    (match["MATRICULATED"] - match["ADMITTED"]) * 2 * 3465 * 0.5
+                ) if "MATRICULATED" in match.columns else 0
+
+                # if columns differ in naming safety
+                if "enrolled" in match.columns and "admitted" in match.columns:
+                    match["Expected_Money_Loss"] = (
+                        (match["enrolled"] - match["admitted"]) * 2 * 3465 * 0.5
+                    )
+
+                total_loss = match["Expected_Money_Loss"].sum() if "Expected_Money_Loss" in match.columns else 0
+
+                st.metric("💸 Expected Money Loss", f"${total_loss:,.0f}")
+
+                # most common program
+                if "MOST_COMMON_PROGRAM" in match.columns:
+                    top_prog = (
+                        match["MOST_COMMON_PROGRAM"]
+                        .value_counts()
+                        .head(1)
+                        .index[0]
+                    )
+                    st.metric("🎓 Most Common Program", top_prog)
+
+                st.dataframe(match, use_container_width=True)
 
     # ================= CATEGORY GRAPH =================
     if "Recruitment_Category" in df_term.columns:
