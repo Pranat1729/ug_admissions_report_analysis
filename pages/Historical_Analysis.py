@@ -215,7 +215,32 @@ if not df_term.empty:
             st.plotly_chart(fig_school_major, use_container_width=True)
         else:
             st.warning("No school-major data available.")
+    # ================= APPLICANTS VS ENROLLED BY CATEGORY =================
+    st.markdown("## 📊 Applicants vs Enrolled by Category")
 
+    if "Recruitment_Category" in df_term.columns:
+
+        cat_conv = df_term.groupby("Recruitment_Category").agg(
+            applicants=("admitted", "sum"),
+            enrolled=("enrolled", "sum")
+        ).reset_index()
+
+        cat_conv["conversion_rate"] = cat_conv["enrolled"] / cat_conv["applicants"]
+
+        fig_conv = px.scatter(
+            cat_conv,
+            x="applicants",
+            y="enrolled",
+            size="applicants",
+            color="Recruitment_Category",
+            text="Recruitment_Category",
+            hover_data=["conversion_rate"],
+            title="Applicants vs Enrolled by Recruitment Category"
+        )
+
+        fig_conv.update_traces(textposition="top center")
+
+    st.plotly_chart(fig_conv, use_container_width=True)
     # ================= YIELD GRAPH =================
     st.markdown("## 🏆 Top Schools by Yield Rate")
 
