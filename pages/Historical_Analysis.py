@@ -141,8 +141,7 @@ if not df_term.empty:
         st.markdown("## 🏷️ Enrollment by Category")
 
         cat = df_term.groupby("Recruitment_Category").agg(
-            enrolled=("enrolled", "sum"),
-            admitted=("admitted", "sum")
+            enrolled=("enrolled", "sum")
         ).reset_index()
 
         fig_cat = px.bar(
@@ -159,29 +158,65 @@ if not df_term.empty:
         st.plotly_chart(fig_cat, use_container_width=True)
 
     # ================= MAJOR GRAPH =================
-    if "MOST_COMMON_PROGRAM_26" in df_term.columns:
+    if "MOST_COMMON_PROGRAM" in df_school.columns:
+
         st.markdown("## 🎓 Most Common Majors")
 
-        prog = df_term.groupby("MOST_COMMON_PROGRAM_26").agg(
-            enrolled=("enrolled", "sum")
+        df_school_clean = df_school.dropna(subset=["MOST_COMMON_PROGRAM"])
+
+        prog = df_school_clean.groupby("MOST_COMMON_PROGRAM").agg(
+            total_enrolled=("enrolled", "sum"),
+            school_count=(name_field, "count")
         ).reset_index()
 
-        prog = prog.sort_values("enrolled", ascending=False).head(10)
+        prog = prog.sort_values("total_enrolled", ascending=False).head(10)
 
-        fig_prog = px.bar(
-            prog,
-            x="MOST_COMMON_PROGRAM_26",
-            y="enrolled",
-            color="enrolled",
-            text=prog["enrolled"].apply(lambda x: f"{x:.0f}")
-        )
+        if not prog.empty:
+            fig_prog = px.bar(
+                prog,
+                x="MOST_COMMON_PROGRAM",
+                y="total_enrolled",
+                color="total_enrolled",
+                text=prog["total_enrolled"].apply(lambda x: f"{x:.0f}")
+            )
 
-        fig_prog.update_traces(textposition="outside")
-        fig_prog.update_layout(xaxis_tickangle=-45)
+            fig_prog.update_traces(textposition="outside")
+            fig_prog.update_layout(xaxis_tickangle=-45)
 
-        st.plotly_chart(fig_prog, use_container_width=True)
+            st.plotly_chart(fig_prog, use_container_width=True)
+        else:
+            st.warning("No valid major data available.")
 
-    # ================= YIELD GRAPH (WITH FILTER) =================
+        # ================= SCHOOL → MAJOR GRAPH =================
+        st.markdown("## 🏫 Most Common Major by School")
+
+        school_top_major = df_school_clean[
+            [name_field, "MOST_COMMON_PROGRAM", "enrolled", "admitted"]
+        ].copy()
+
+        school_top_major = school_top_major[school_top_major["admitted"] > 100]
+
+        top_n = st.slider("Top N Schools (Major Pipeline)", 5, 30, 10)
+
+        school_top_major = school_top_major.sort_values("enrolled", ascending=False).head(top_n)
+
+        if not school_top_major.empty:
+            fig_school_major = px.bar(
+                school_top_major,
+                x=name_field,
+                y="enrolled",
+                color="MOST_COMMON_PROGRAM",
+                text=school_top_major["MOST_COMMON_PROGRAM"]
+            )
+
+            fig_school_major.update_traces(textposition="outside")
+            fig_school_major.update_layout(xaxis_tickangle=-45)
+
+            st.plotly_chart(fig_school_major, use_container_width=True)
+        else:
+            st.warning("No school-major data available.")
+
+    # ================= YIELD GRAPH =================
     st.markdown("## 🏆 Top Schools by Yield Rate")
 
     school_yield = df_term.groupby(name_field).agg(
@@ -189,10 +224,7 @@ if not df_term.empty:
         enrolled=("enrolled", "sum")
     ).reset_index()
 
-    # 🔥 FILTER APPLIED HERE
-    school_yield = school_yield[
-        (school_yield["admitted"] > 250)
-    ]
+    school_yield = school_yield[school_yield["admitted"] > 250]
 
     school_yield["yield_rate"] = school_yield["enrolled"] / school_yield["admitted"]
 
