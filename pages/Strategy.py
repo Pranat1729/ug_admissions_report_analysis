@@ -1,177 +1,229 @@
 import streamlit as st
 import pandas as pd
-import numpy as np
+from datetime import datetime
 from pymongo import MongoClient
+from gridfs import GridFS
+from streamlit_calendar import calendar
+import smtplib
+from email.mime.text import MIMEText
 
-# ================= AUTH =================
+
 if not st.session_state.get("logged_in", False):
-    st.warning("Please log in from Home page.")
+    st.warning("Please log in from the Home page.")
     st.stop()
 
-# ================= DB =================
+
 @st.cache_resource
 def get_db():
     client = MongoClient(st.secrets["MONGO_URI"])
     return client["test"]
 
 db = get_db()
+fs = GridFS(db)
+
+st.title("📌 Strategy Management")
+
+#### CALENDAR ######## 
 
 
-# ================= LOAD HISTORICAL =================
-@st.cache_data
-def load_history(is_fresh: bool):
-    col = "Freshmen" if is_fresh else "Transfers"
-    name_field = "HS_Name" if is_fresh else "LAST_COL_UGRD_DESCR"
+st.markdown("## 🗓️ Strategy Calendar")
 
-    df = pd.DataFrame(list(db[col].find({}, {"_id": 0})))
-    if df.empty:
-        return df, name_field
+try:
+    meetings = list(db["strategy_meetings"].find({}, {"_id": 0}))
+except:
+    meetings = []
+    st.error("⚠️ Could not load meetings")
 
-    df["yield"] = df["enrolled"] / df["admitted"]
-    df["roi"] = df["enrolled"] / df["applicants"]
-    df.replace([np.inf, -np.inf], np.nan, inplace=True)
+if not meetings:
+    st.info("No meetings yet — click a date to schedule one.")
 
-    return df, name_field
+events = []
+for m in meetings:
+    if m.get("date") and m.get("time"):
+        events.append({
+            "title": m.get("school_name", "Unknown"),
+            "start": f"{m['date']}T{m['time']}",
+            "color": "#2ecc71" if m.get("status") == "confirmed" else "#f39c12",
+        })
 
+calendar_options = {
+    "initialView": "dayGridMonth",
+    "selectable": True,
+    "height": 650,
+}
 
-# ================= UI =================
-st.title("🧠 Recruitment Strategy Engine (v1)")
-
-dataset_type = st.selectbox("Dataset Type", ["Freshmen", "Transfers"])
-is_fresh = dataset_type == "Freshmen"
-
-hist_df, name_field = load_history(is_fresh)
-
-uploaded_file = st.file_uploader("Upload 2026 Cycle File (CSV)", type="csv")
-
-if uploaded_file is None:
-    st.stop()
-
-cycle_df = pd.read_csv(uploaded_file)
+calendar_data = calendar(events=events, options=calendar_options)
 
 
-# ================= CLEAN =================
-school_col = "LAST_SCH_HS_DESCR" if is_fresh else "LAST_COL_UGRD_DESCR"
+selected_date = None
+if calendar_data.get("dateClick"):
+    selected_date = calendar_data["dateClick"]["date"]
 
-cycle_df = cycle_df.copy()
-cycle_df["Expected_Money_Loss"] = (
-    (cycle_df["MATRICULATED_COUNT"] - cycle_df["ADMITTED_COUNT"])
-    * 2 * 3465 * 0.5
-)
+if calendar_data.get("select"):
+    selected_date = calendar_data["select"]["start"]
 
-cycle_df["Remaining_Admitted"] = (
-    cycle_df["ADMITTED_COUNT"] - cycle_df["MATRICULATED_COUNT"]
-)
+if selected_date:
+    st.session_state["selected_date"] = selected_date
 
-cycle_df["Expected_Additional"] = (
-    cycle_df["Remaining_Admitted"] * cycle_df["MATRIC_PROB"]
-)
+###### MEETING #######
 
-cycle_df["Total_Expected_Matriculated"] = (
-    cycle_df["MATRICULATED_COUNT"] + cycle_df["Expected_Additional"]
-)
+st.markdown("### ➕ Schedule Strategy Meeting")
 
+default_date = st.session_state.get("selected_date")
 
-# ================= LOOKUP =================
-school_name = st.text_input(f"Enter {dataset_type} School / College Name")
+school_name = st.text_input("School Name")
 
+col1, col2 = st.columns(2)
 
-def build_strategy(df_hist, df_cycle, school):
+with col1:
+    meeting_date = st.date_input(
+        "Date",
+        value=pd.to_datetime(default_date) if default_date else None
+    )
 
-    hist_match = df_hist[df_hist[name_field].str.lower() == school.lower()]
-    cycle_match = df_cycle[df_cycle[school_col].str.lower() == school.lower()]
+with col2:
+    meeting_time = st.time_input("Time")
 
-    if hist_match.empty and cycle_match.empty:
-        return None
+status = st.selectbox("Status", ["pending", "confirmed"])
+recipient_email = st.text_input("Recipient Email (optional)")
 
-    hist = hist_match.iloc[0] if not hist_match.empty else None
-    cycle = cycle_match.iloc[0] if not cycle_match.empty else None
+if st.button("Add Meeting"):
 
-    # ---------------- METRICS ----------------
-    admitted = cycle["ADMITTED_COUNT"] if cycle is not None else 0
-    enrolled = cycle["MATRICULATED_COUNT"] if cycle is not None else 0
+    if school_name and meeting_date and meeting_time:
 
-    expected_additional = cycle["Expected_Additional"] if cycle is not None else 0
-    total_expected = cycle["Total_Expected_Matriculated"] if cycle is not None else 0
-    money_loss = cycle["Expected_Money_Loss"] if cycle is not None else 0
+        existing = db["strategy_meetings"].find_one({
+            "date": str(meeting_date),
+            "time": str(meeting_time)
+        })
 
-    yield_rate = enrolled / admitted if admitted > 0 else 0
+        if existing:
+            st.error("⚠️ Time slot already booked.")
+        else:
+            db["strategy_meetings"].insert_one({
+                "school_name": school_name,
+                "date": str(meeting_date),
+                "time": str(meeting_time),
+                "status": status,
+                "created_at": datetime.now()
+            })
 
-    # ---------------- CLASSIFICATION ----------------
-    if yield_rate > 0.6:
-        status = "Strong Yield School"
-    elif yield_rate > 0.4:
-        status = "Stable School"
-    elif yield_rate > 0.2:
-        status = "At Risk School"
+            st.success("✅ Meeting scheduled!")
+
+            
+            if recipient_email:
+                try:
+                    msg = MIMEText(f"""
+Strategy Meeting Scheduled
+
+School: {school_name}
+Date: {meeting_date}
+Time: {meeting_time}
+""")
+                    msg["Subject"] = f"Strategy Meeting - {school_name}"
+                    msg["From"] = "ugrecruitmentBC@gmail.com"
+                    msg["To"] = recipient_email
+
+                    server = smtplib.SMTP("smtp.gmail.com", 587)
+                    server.starttls()
+                    server.login("ugrecruitmentBC@gmail.com", "wstpluqfccswzhxe")
+                    server.send_message(msg)
+                    server.quit()
+
+                    st.success("📨 Email sent!")
+
+                except Exception as e:
+                    st.warning(f"Email failed: {e}")
+
+            st.rerun()
+
     else:
-        status = "Critical Loss School"
+        st.warning("Please fill all fields.")
 
-    # ---------------- PROGRAM ----------------
-    if cycle is not None and "MOST_COMMON_PROGRAM_26" in cycle:
-        program = cycle["MOST_COMMON_PROGRAM_26"]
+# EVENT DETAILS 
+
+st.markdown("### 🔍 Event Details")
+
+if calendar_data.get("eventClick"):
+    event = calendar_data["eventClick"]["event"]
+
+    st.info(f"""
+**School:** {event.get('title')}  
+**Start:** {event.get('start')}  
+""")
+
+    if st.button("🗑️ Delete This Event"):
+        db["strategy_meetings"].delete_one({
+            "school_name": event.get("title"),
+            "date": event.get("start").split("T")[0]
+        })
+        st.rerun()
+
+
+##### FILE UPLOAD #######
+
+
+st.markdown("## 📂 Upload Strategy Document")
+
+school_upload = st.text_input("School Name for Upload")
+uploaded_file = st.file_uploader("Upload File", type=["pdf", "docx"])
+
+if st.button("Upload File"):
+
+    if uploaded_file and school_upload:
+
+        file_id = fs.put(
+            uploaded_file.read(),
+            filename=uploaded_file.name,
+            school_name=school_upload
+        )
+
+        db["strategy_files"].insert_one({
+            "school_name": school_upload,
+            "filename": uploaded_file.name,
+            "file_id": file_id,
+            "upload_date": datetime.now()
+        })
+
+        st.success("✅ File uploaded!")
+
     else:
-        program = "Unknown"
+        st.warning("Provide school name + file.")
 
-    # ---------------- STRATEGY RULES ----------------
-    strategy = []
+##### FILE VIEW ##########
 
-    if status == "Strong Yield School":
-        strategy.append("Maintain current outreach levels.")
-        strategy.append("Focus on premium programs and yield protection.")
-        strategy.append("Consider early commitment incentives.")
 
-    elif status == "Stable School":
-        strategy.append("Maintain engagement but improve yield conversion.")
-        strategy.append("Target high-performing programs for outreach.")
-        strategy.append("Monitor admit-yield gap closely.")
+st.markdown("## 📚 View Strategy Documents")
 
-    elif status == "At Risk School":
-        strategy.append("Increase targeted outreach immediately.")
-        strategy.append("Introduce scholarships / incentives.")
-        strategy.append("Focus on high-yield programs.")
+school_lookup = st.text_input("Enter School Name")
+
+if school_lookup:
+
+    
+    files = list(db["strategy_files"].find({
+        "school_name": {"$regex": f"^{school_lookup}$", "$options": "i"}
+    }))
+
+    if files:
+
+        for f in files:
+            st.write(f"📄 {f['filename']} — {f['upload_date']}")
+
+            try:
+                file_data = fs.get(f["file_id"]).read()
+
+                st.download_button(
+                    label=f"Download {f['filename']}",
+                    data=file_data,
+                    file_name=f["filename"]
+                )
+
+                if st.button(f"Delete {f['filename']}"):
+                    fs.delete(f["file_id"])
+                    db["strategy_files"].delete_one({"file_id": f["file_id"]})
+                    st.rerun()
+
+            except:
+                st.error("⚠️ File missing or corrupted")
 
     else:
-        strategy.append("Urgent intervention required.")
-        strategy.append("Rebuild pipeline and engagement strategy.")
-        strategy.append("Reduce over-reliance on this school.")
-
-    # ---------------- RETURN ----------------
-    return {
-        "status": status,
-        "admitted": admitted,
-        "enrolled": enrolled,
-        "yield_rate": yield_rate,
-        "expected_additional": expected_additional,
-        "total_expected": total_expected,
-        "money_loss": money_loss,
-        "top_program": program,
-        "strategy": strategy
-    }
-
-
-# ================= OUTPUT =================
-if school_name:
-
-    result = build_strategy(hist_df, cycle_df, school_name)
-
-    if result is None:
-        st.warning("No matching school found in dataset.")
-    else:
-
-        st.markdown("## 📊 Strategy Overview")
-
-        st.metric("Status", result["status"])
-        st.metric("Yield Rate", f"{result['yield_rate']:.2%}")
-        st.metric("Expected Money Loss", f"${result['money_loss']:,.0f}")
-        st.metric("Top Program", result["top_program"])
-
-        st.markdown("## 🧠 Recommended Strategy")
-
-        for i, s in enumerate(result["strategy"], 1):
-            st.write(f"{i}. {s}")
-
-        st.markdown("---")
-
-        st.markdown("## 📌 Raw Values")
-        st.json(result)
+        st.info("No strategy documents found.")
