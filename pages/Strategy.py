@@ -112,20 +112,14 @@ if st.button("Add Meeting"):
             
             if recipient_email:
                 try:
-                    msg = MIMEText(f"""
-Strategy Meeting Scheduled
-
-School: {school_name}
-Date: {meeting_date}
-Time: {meeting_time}
-""")
+                    msg = MIMEText(f"""Strategy Meeting Scheduled School: {school_name} Date: {meeting_date} Time: {meeting_time} """)
                     msg["Subject"] = f"Strategy Meeting - {school_name}"
-                    msg["From"] = "ugrecruitmentBC@gmail.com"
+                    msg["From"] = st.secrets["GMAIL"]
                     msg["To"] = recipient_email
 
                     server = smtplib.SMTP("smtp.gmail.com", 587)
                     server.starttls()
-                    server.login("ugrecruitmentBC@gmail.com", "wstpluqfccswzhxe")
+                    server.login(st.secrets["GMAIL"], st.secrets["PASSWORD"])
                     server.send_message(msg)
                     server.quit()
 
