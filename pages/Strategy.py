@@ -25,7 +25,7 @@ fs = GridFS(db)
 st.title("📌 Strategy Management")
 
 
-#  REMINDERS (NEW)
+#  REMINDERS 
 
 st.markdown("## 🔔 Upcoming Meetings")
 
@@ -194,7 +194,7 @@ if calendar_data.get("eventClick"):
 
 
 
-#  PRIORITY + NOTES (NEW CORE FEATURE)
+#  PRIORITY + NOTES 
 
 st.markdown("## 🎯 School Strategy")
 
