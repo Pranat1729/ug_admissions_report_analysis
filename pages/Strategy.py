@@ -1,11 +1,12 @@
 import streamlit as st
 import pandas as pd
-from datetime import datetime
+from datetime import datetime, date
 from pymongo import MongoClient
 from gridfs import GridFS
 from streamlit_calendar import calendar
 import smtplib
 from email.mime.text import MIMEText
+
 
 
 if not st.session_state.get("logged_in", False):
@@ -23,27 +24,42 @@ fs = GridFS(db)
 
 st.title("📌 Strategy Management")
 
-#### CALENDAR ######## 
 
+#  REMINDERS (NEW)
+
+st.markdown("## 🔔 Upcoming Meetings")
+
+today = str(date.today())
+
+try:
+    meetings_all = list(db["strategy_meetings"].find({}, {"_id": 0}))
+except:
+    meetings_all = []
+
+today_meetings = [m for m in meetings_all if m.get("date") == today]
+
+if today_meetings:
+    for m in today_meetings:
+        st.warning(f"📅 Today: {m['school_name']} at {m['time']}")
+else:
+    st.info("No meetings today")
+
+
+#  CALENDAR
 
 st.markdown("## 🗓️ Strategy Calendar")
 
-try:
-    meetings = list(db["strategy_meetings"].find({}, {"_id": 0}))
-except:
-    meetings = []
-    st.error("⚠️ Could not load meetings")
-
-if not meetings:
-    st.info("No meetings yet — click a date to schedule one.")
-
 events = []
-for m in meetings:
+for m in meetings_all:
     if m.get("date") and m.get("time"):
+        color = "#2ecc71" if m.get("status") == "confirmed" else "#f39c12"
+        if m.get("status") == "completed":
+            color = "#95a5a6"
+
         events.append({
             "title": m.get("school_name", "Unknown"),
             "start": f"{m['date']}T{m['time']}",
-            "color": "#2ecc71" if m.get("status") == "confirmed" else "#f39c12",
+            "color": color,
         })
 
 calendar_options = {
@@ -53,7 +69,6 @@ calendar_options = {
 }
 
 calendar_data = calendar(events=events, options=calendar_options)
-
 
 selected_date = None
 if calendar_data.get("dateClick"):
@@ -65,7 +80,9 @@ if calendar_data.get("select"):
 if selected_date:
     st.session_state["selected_date"] = selected_date
 
-###### MEETING #######
+
+
+#  ADD MEETING
 
 st.markdown("### ➕ Schedule Strategy Meeting")
 
@@ -84,7 +101,8 @@ with col1:
 with col2:
     meeting_time = st.time_input("Time")
 
-status = st.selectbox("Status", ["pending", "confirmed"])
+status = st.selectbox("Status", ["pending", "confirmed", "completed"])
+assigned_to = st.text_input("Assign To (optional)")
 recipient_email = st.text_input("Recipient Email (optional)")
 
 if st.button("Add Meeting"):
@@ -104,22 +122,29 @@ if st.button("Add Meeting"):
                 "date": str(meeting_date),
                 "time": str(meeting_time),
                 "status": status,
+                "assigned_to": assigned_to,
                 "created_at": datetime.now()
             })
 
             st.success("✅ Meeting scheduled!")
 
-            
             if recipient_email:
                 try:
-                    msg = MIMEText(f"""Strategy Meeting Scheduled School: {school_name} Date: {meeting_date} Time: {meeting_time} """)
+                    msg = MIMEText(f"""
+Strategy Meeting Scheduled
+
+School: {school_name}
+Date: {meeting_date}
+Time: {meeting_time}
+Assigned To: {assigned_to}
+""")
                     msg["Subject"] = f"Strategy Meeting - {school_name}"
-                    msg["From"] = st.secrets["GMAIL"]
+                    msg["From"] = "ugrecruitmentBC@gmail.com"
                     msg["To"] = recipient_email
 
                     server = smtplib.SMTP("smtp.gmail.com", 587)
                     server.starttls()
-                    server.login(st.secrets["GMAIL"], st.secrets["PASSWORD"])
+                    server.login("ugrecruitmentBC@gmail.com", "wstpluqfccswzhxe")
                     server.send_message(msg)
                     server.quit()
 
@@ -133,7 +158,9 @@ if st.button("Add Meeting"):
     else:
         st.warning("Please fill all fields.")
 
-# EVENT DETAILS 
+
+
+#  EVENT DETAILS + STATUS UPDATE
 
 st.markdown("### 🔍 Event Details")
 
@@ -145,6 +172,19 @@ if calendar_data.get("eventClick"):
 **Start:** {event.get('start')}  
 """)
 
+    new_status = st.selectbox("Update Status", ["pending", "confirmed", "completed"])
+
+    if st.button("Update Status"):
+        db["strategy_meetings"].update_one(
+            {
+                "school_name": event.get("title"),
+                "date": event.get("start").split("T")[0]
+            },
+            {"$set": {"status": new_status}}
+        )
+        st.success("Updated!")
+        st.rerun()
+
     if st.button("🗑️ Delete This Event"):
         db["strategy_meetings"].delete_one({
             "school_name": event.get("title"),
@@ -153,8 +193,54 @@ if calendar_data.get("eventClick"):
         st.rerun()
 
 
-##### FILE UPLOAD #######
 
+#  PRIORITY + NOTES (NEW CORE FEATURE)
+
+st.markdown("## 🎯 School Strategy")
+
+school_lookup = st.text_input("Enter School Name for Strategy")
+
+if school_lookup:
+
+    school_key = school_lookup.strip()
+
+    strategy_doc = db["school_strategy"].find_one({
+        "school_name": {"$regex": f"^{school_key}$", "$options": "i"}
+    })
+
+    priority = st.selectbox(
+        "Priority",
+        ["High", "Medium", "Low"],
+        index=0 if not strategy_doc else ["High","Medium","Low"].index(strategy_doc.get("priority","High"))
+    )
+
+    assigned = st.text_input(
+        "Assigned To",
+        value="" if not strategy_doc else strategy_doc.get("assigned_to","")
+    )
+
+    notes = st.text_area(
+        "Strategy Notes",
+        value="" if not strategy_doc else strategy_doc.get("notes","")
+    )
+
+    if st.button("Save Strategy"):
+        db["school_strategy"].update_one(
+            {"school_name": school_key},
+            {
+                "$set": {
+                    "priority": priority,
+                    "assigned_to": assigned,
+                    "notes": notes,
+                    "updated_at": datetime.now()
+                }
+            },
+            upsert=True
+        )
+        st.success("✅ Strategy saved!")
+
+
+# FILE UPLOAD
 
 st.markdown("## 📂 Upload Strategy Document")
 
@@ -183,18 +269,16 @@ if st.button("Upload File"):
     else:
         st.warning("Provide school name + file.")
 
-##### FILE VIEW ##########
 
 
 st.markdown("## 📚 View Strategy Documents")
 
-school_lookup = st.text_input("Enter School Name")
+school_lookup_files = st.text_input("Enter School Name to View Files")
 
-if school_lookup:
+if school_lookup_files:
 
-    
     files = list(db["strategy_files"].find({
-        "school_name": {"$regex": f"^{school_lookup}$", "$options": "i"}
+        "school_name": {"$regex": f"^{school_lookup_files}$", "$options": "i"}
     }))
 
     if files:
@@ -221,3 +305,4 @@ if school_lookup:
 
     else:
         st.info("No strategy documents found.")
+        
