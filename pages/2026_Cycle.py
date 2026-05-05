@@ -183,8 +183,8 @@ def render_dashboard(df, title=""):
 
     st.plotly_chart(fig_gap, use_container_width=True)
 
-    # ---------- PROGRAMS ----------
-    st.markdown("## 🎓 Programs")
+    # ---------- PROGRAMS (EXPECTED) ----------
+    st.markdown("## 🎓 Programs (Expected Matriculation)")
 
     prog = df.groupby("MOST_COMMON_PROGRAM_26")["Expected_Matriculation"].sum().reset_index()
 
@@ -199,6 +199,23 @@ def render_dashboard(df, title=""):
 
     fig_prog.update_layout(xaxis_tickangle=-45)
     st.plotly_chart(fig_prog, use_container_width=True)
+
+    # ---------- PROGRAMS (ACTUAL) ----------
+    st.markdown("## 📌 Programs (Actual Matriculated)")
+
+    prog_actual = df.groupby("MOST_COMMON_PROGRAM_26")["MATRICULATED_COUNT"].sum().reset_index()
+
+    fig_prog_actual = px.bar(
+        prog_actual.sort_values("MATRICULATED_COUNT", ascending=False).head(10),
+        x="MOST_COMMON_PROGRAM_26",
+        y="MATRICULATED_COUNT",
+        color="MATRICULATED_COUNT",
+        color_continuous_scale="Reds",
+        text_auto=".0f"
+    )
+
+    fig_prog_actual.update_layout(xaxis_tickangle=-45)
+    st.plotly_chart(fig_prog_actual, use_container_width=True)
 
     # ---------- TOP SCHOOLS ----------
     st.markdown("## 🏆 Top Schools by Expected Matriculation")
