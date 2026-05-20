@@ -22,10 +22,10 @@ def get_db():
 db = get_db()
 fs = GridFS(db)
 
-st.title("📌 Recruitment Strategy")
+st.title("Recruitment Strategy")
 
 
-st.markdown("## 🔔 Upcoming Meetings")
+st.markdown("## Upcoming Meetings")
 
 today = str(date.today())
 
@@ -38,12 +38,12 @@ today_meetings = [m for m in meetings_all if m.get("date") == today]
 
 if today_meetings:
     for m in today_meetings:
-        st.warning(f"📅 Today: {m.get('purpose', 'Meeting')} with {m.get('contact', '')} at {m['time']}")
+        st.warning(f" Today: {m.get('purpose', 'Meeting')} with {m.get('contact', '')} at {m['time']}")
 else:
     st.info("No meetings today.")
 
 
-st.markdown("## 🗓️ Recruitment Calendar")
+st.markdown("##  Recruitment Calendar")
 
 events = []
 for m in meetings_all:
@@ -80,7 +80,7 @@ if selected_date:
 
 
 
-st.markdown("### ➕ Schedule Meeting")
+st.markdown("### Schedule Meeting")
 
 default_date = st.session_state.get("selected_date")
 
@@ -110,7 +110,7 @@ if st.button("Add Meeting"):
         })
 
         if existing:
-            st.error("⚠️ Time slot already booked.")
+            st.error(" Time slot already booked.")
         else:
             db["strategy_meetings"].insert_one({
                 "purpose": purpose,
@@ -123,7 +123,7 @@ if st.button("Add Meeting"):
                 "created_at": datetime.now()
             })
 
-            st.success("✅ Meeting scheduled!")
+            st.success(" Meeting scheduled!")
 
             if recipient_email:
                 try:
@@ -159,7 +159,7 @@ Assigned To: {assigned_to}
 
 
 
-st.markdown("### 🔍 Event Details")
+st.markdown("###  Event Details")
 
 if calendar_data.get("eventClick"):
     event = calendar_data["eventClick"]["event"]
@@ -195,7 +195,7 @@ if calendar_data.get("eventClick"):
 
 
 
-st.markdown("## 🎯 Meeting Strategy")
+st.markdown("##  Meeting Strategy")
 
 st.caption("Look up any scheduled meeting to add priority, notes, and ownership.")
 
@@ -246,11 +246,11 @@ if lookup_purpose or lookup_contact:
             },
             upsert=True
         )
-        st.success("✅ Strategy saved!")
+        st.success(" Strategy saved!")
 
 
 
-st.markdown("## 📂 Upload Meeting Document")
+st.markdown("##  Upload Meeting Document")
 
 col1, col2 = st.columns(2)
 with col1:
@@ -277,13 +277,13 @@ if st.button("Upload File"):
             "upload_date": datetime.now()
         })
 
-        st.success("✅ File uploaded!")
+        st.success(" File uploaded!")
     else:
         st.warning("Provide at least a purpose and file.")
 
 
 
-st.markdown("## 📚 View Meeting Documents")
+st.markdown("##  View Meeting Documents")
 
 col1, col2 = st.columns(2)
 with col1:
@@ -302,7 +302,7 @@ if view_purpose or view_contact:
 
     if files:
         for f in files:
-            st.write(f"📄 {f['filename']} — {f.get('contact', '')} — {f['upload_date']}")
+            st.write(f" {f['filename']} — {f.get('contact', '')} — {f['upload_date']}")
 
             try:
                 file_data = fs.get(f["file_id"]).read()
