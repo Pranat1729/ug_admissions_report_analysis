@@ -9,7 +9,7 @@ if not st.session_state.get("logged_in", False):
     st.warning("Please log in from the Home page.")
     st.stop()
 
-# ================= DB =================
+
 @st.cache_resource
 def get_db():
     client = MongoClient(st.secrets["MONGO_URI"])
@@ -17,7 +17,7 @@ def get_db():
 
 db = get_db()
 
-# ================= CATEGORY LOOKUP =================
+
 @st.cache_data(ttl=600)
 def load_category_lookup(is_fresh: bool) -> dict:
     col_name = "Freshmen" if is_fresh else "Transfers"
@@ -51,9 +51,9 @@ def load_category_lookup(is_fresh: bool) -> dict:
     raw["Recruitment_Category"] = raw.apply(classify, axis=1)
     return dict(zip(raw[name_field], raw["Recruitment_Category"]))
 
-# ================= SIDEBAR =================
+
 with st.sidebar:
-    st.title("📊 Recruitment Analytics")
+    st.title("Recruitment Analytics")
     st.success(f"Logged in as **{st.session_state.username}**")
     st.markdown("---")
 
@@ -65,7 +65,7 @@ with st.sidebar:
         st.session_state.logged_in = False
         st.rerun()
 
-# ================= MAIN =================
+
 st.title("🔭 2026 Cycle Analysis")
 
 dataset_type = st.selectbox("Select Dataset Type", ["Freshmen", "Transfers"])
@@ -78,7 +78,7 @@ if uploaded is None:
 
 df_26 = pd.read_csv(uploaded)
 
-# ================= CATEGORY =================
+
 category_lookup = load_category_lookup(is_fresh)
 
 df_26["Hist_Category"] = df_26[school_col_26].map(category_lookup).fillna("Unclassified")
@@ -88,10 +88,9 @@ if "Recruitment_Category" not in df_26.columns:
 else:
     df_26["Recruitment_Category"] = df_26["Recruitment_Category"].fillna("Unclassified")
 
-# ================= MODEL A (NO GROUPBY) =================
 dedup_26 = df_26.drop_duplicates(subset=school_col_26).copy()
 
-# ================= COMMUNITY COLLEGES =================
+
 dedup_cc = None
 
 if not is_fresh:
@@ -111,7 +110,7 @@ if not is_fresh:
 
         dedup_cc = dedup_26[dedup_26[school_col_26].apply(is_cc)].copy()
 
-# ================= METRICS =================
+
 def compute(df):
     df["Expected_Money_Loss"] = (df["MATRICULATED_COUNT"] - df["ADMITTED_COUNT"]) * 2 * 3465 * 0.5
     df["Remaining_Admitted"] = df["ADMITTED_COUNT"] - df["MATRICULATED_COUNT"]
@@ -123,13 +122,13 @@ dedup_26 = compute(dedup_26)
 if dedup_cc is not None:
     dedup_cc = compute(dedup_cc)
 
-# ================= DASHBOARD =================
+=
 def render_dashboard(df, title=""):
 
     st.markdown(f"# {title}")
 
-    # ---------- SUMMARY ----------
-    st.markdown("## 📋 Summary Metrics")
+    
+    st.markdown("##  Summary Metrics")
     c1, c2, c3, c4 = st.columns(4)
 
     c1.metric("Total Admitted", f"{df['ADMITTED_COUNT'].sum():,.0f}")
@@ -137,12 +136,12 @@ def render_dashboard(df, title=""):
     c3.metric("Expected Additional", f"{df['Expected_Additional_Matriculated'].sum():,.1f}")
     c4.metric("Expected Matriculation", f"{df['Expected_Matriculation'].sum():,.1f}")
 
-    st.metric("💸 Expected Money Loss", f"${df['Expected_Money_Loss'].sum():,.0f}")
+    st.metric(" Expected Money Loss", f"${df['Expected_Money_Loss'].sum():,.0f}")
 
     st.markdown("---")
 
-    # ---------- CATEGORY ----------
-    st.markdown("## 🏷️ Matriculation by Category")
+    
+    st.markdown("##  Matriculation by Category")
 
     cat = df.groupby("Recruitment_Category").agg(
         Already=("MATRICULATED_COUNT", "sum"),
@@ -173,8 +172,8 @@ def render_dashboard(df, title=""):
 
     st.plotly_chart(fig_stack, use_container_width=True)
 
-    # ---------- ADMIT VS YIELD ----------
-    st.markdown("## 📉 Admit vs Yield")
+    
+    st.markdown("##  Admit vs Yield")
 
     fig_gap = go.Figure()
     fig_gap.add_trace(go.Bar(x=df[school_col_26], y=df["ADMIT_RATE"], name="Admit Rate"))
@@ -183,8 +182,8 @@ def render_dashboard(df, title=""):
 
     st.plotly_chart(fig_gap, use_container_width=True)
 
-    # ---------- PROGRAMS (EXPECTED) ----------
-    st.markdown("## 🎓 Programs (Expected Matriculation)")
+
+    st.markdown("##  Programs (Expected Matriculation)")
 
     prog = df.groupby("MOST_COMMON_PROGRAM_26")["Expected_Matriculation"].sum().reset_index()
 
@@ -200,8 +199,8 @@ def render_dashboard(df, title=""):
     fig_prog.update_layout(xaxis_tickangle=-45)
     st.plotly_chart(fig_prog, use_container_width=True)
 
-    # ---------- PROGRAMS (ACTUAL) ----------
-    st.markdown("## 📌 Programs (Actual Matriculated)")
+    
+    st.markdown("##  Programs (Actual Matriculated)")
 
     prog_actual = df.groupby("MOST_COMMON_PROGRAM_26")["MATRICULATED_COUNT"].sum().reset_index()
 
@@ -217,8 +216,8 @@ def render_dashboard(df, title=""):
     fig_prog_actual.update_layout(xaxis_tickangle=-45)
     st.plotly_chart(fig_prog_actual, use_container_width=True)
 
-    # ---------- TOP SCHOOLS ----------
-    st.markdown("## 🏆 Top Schools by Expected Matriculation")
+    
+    st.markdown("## Top Schools by Expected Matriculation")
 
     top_n = st.slider(f"Top N Schools ({title})", 5, 50, 15, key=f"top_{title}")
 
@@ -240,15 +239,15 @@ def render_dashboard(df, title=""):
 
     st.dataframe(top, use_container_width=True, hide_index=True)
 
-    # ---------- FULL TABLE ----------
-    st.markdown("## 🏫 Full Table")
+    
+    st.markdown("##  Full Table")
 
     st.dataframe(
         df.sort_values("Expected_Matriculation", ascending=False),
         use_container_width=True
     )
 
-# ================= RENDER =================
+
 render_dashboard(dedup_26, "All Transfers / Dataset")
 
 if dedup_cc is not None and not dedup_cc.empty:
