@@ -4,7 +4,7 @@ from pymongo import MongoClient
 st.set_page_config(page_title="Recruitment Analytics", layout="wide")
 
 
-# DB
+
 
 @st.cache_resource
 def get_db():
@@ -15,16 +15,15 @@ db = get_db()
 users_col = db["users"]
 
 
-# SESSION INIT
 
 for key, default in [("logged_in", False), ("username", ""), ("role", "user")]:
     if key not in st.session_state:
         st.session_state[key] = default
 
-# LOGIN PAGE
+
 
 if not st.session_state.logged_in:
-    st.title("📊 Recruitment Analytics")
+    st.title(" Recruitment Analytics")
 
     st.markdown("""
     ### Welcome
@@ -53,14 +52,14 @@ if not st.session_state.logged_in:
 
 
 # MAIN APP HOME
-st.title("📊 Recruitment Analytics Dashboard")
+st.title("Recruitment Analytics Dashboard")
 
 st.success(f"Logged in as **{st.session_state.username}**")
 
 
 # ABOUT SECTION
 
-with st.expander("ℹ️ About This System", expanded=True):
+with st.expander("About This System", expanded=True):
     st.markdown("""
 This dashboard is designed to support **university recruitment strategy and forecasting**.
 
@@ -79,9 +78,8 @@ Help recruitment teams decide:
 """)
 
 
-# HOW TO USE
 
-with st.expander("🧭 How to Use This App", expanded=True):
+with st.expander("How to Use This App", expanded=True):
     st.markdown("""
 ### Step 1 — Upload Data
 Go to sidebar in each page and upload:
@@ -89,17 +87,17 @@ Go to sidebar in each page and upload:
 - Transfers_26_categorized.csv
 
 ### Step 2 — Choose Analysis Page
-- **🏫 Historical Analysis**
+- ** Historical Analysis**
   → Understand long-term school performance, ROI, yield patterns
 
-- **🔭 2026 Cycle**
+- ** 2026 Cycle**
   → Analyze current cycle outcomes:
   - Expected matriculation
   - Money loss estimates
   - Admit vs yield gaps
   - Program demand
 
-- **📌 Strategy**
+- ** Strategy**
   → Schedule meetings, upload strategy PDFs, track outreach plans
 
 ### Step 3 — Filter & Explore
@@ -111,15 +109,15 @@ Use:
 """)
 
 
-# PAGE OVERVIEW (clean navigation)
 
-st.markdown("## 🗂️ Pages Overview")
+
+st.markdown("##  Pages Overview")
 
 col1, col2, col3 = st.columns(3)
 
 with col1:
     st.markdown("""
-### 🏫 Historical
+###  Historical
 - 3-year + MongoDB intelligence
 - Bayesian ROI classification
 - School categorization
@@ -127,7 +125,7 @@ with col1:
 
 with col2:
     st.markdown("""
-### 🔭 2026 Cycle
+###  2026 Cycle
 - Current admissions cycle
 - Expected matriculation
 - Money loss estimation
@@ -136,7 +134,7 @@ with col2:
 
 with col3:
     st.markdown("""
-### 📌 Strategy
+###  Strategy
 - Calendar scheduling
 - Email meeting setup
 - Upload strategy documents (PDF/DOCX)
