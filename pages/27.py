@@ -8,7 +8,7 @@ if not st.session_state.get("logged_in", False):
     st.warning("Please log in from the Home page.")
     st.stop()
 
-st.title("🔭 Looking Forward: 2027 Cycle")
+st.title(" Looking Forward: 2027 Cycle")
 st.markdown("Prospective student data from NACAC College Fairs")
 
 
@@ -79,7 +79,7 @@ areas_freq.columns = ['Area', 'Count']
 
 
 with st.sidebar:
-    st.markdown("### 🔍 27 Cycle Filters")
+    st.markdown("###  27 Cycle Filters")
     term_filter = st.multiselect("Starting Term", df27['StartingTerm'].unique().tolist(),
                                   default=df27['StartingTerm'].unique().tolist())
     eth_filter  = st.multiselect("Ethnicity", df27['Ethnicity'].dropna().unique().tolist(),
@@ -95,7 +95,7 @@ df_f = df27[
 
 
 st.markdown("---")
-st.header("📋 Overview")
+st.header(" Overview")
 
 c1, c2, c3, c4, c5 = st.columns(5)
 c1.metric("Total Prospects",    len(df_f))
@@ -108,7 +108,7 @@ c5.metric("Flagged Records",    int(df_f['Flag_GradYear'].sum()),
 st.markdown("---")
 
 
-st.header("🎯 Pipeline Quality")
+st.header(" Pipeline Quality")
 
 col1, col2 = st.columns(2)
 
@@ -155,7 +155,7 @@ st.plotly_chart(fig_term, use_container_width=True)
 st.markdown("---")
 
 
-st.header("👥 Demographics")
+st.header("Demographics")
 
 col1, col2 = st.columns(2)
 
@@ -194,7 +194,7 @@ st.dataframe(cross, use_container_width=True)
 st.markdown("---")
 
 
-st.header("🎓 Academic Interests")
+st.header("Academic Interests")
 
 col1, col2 = st.columns(2)
 
@@ -232,7 +232,7 @@ if df_f['AcademicInterest1'].notna().sum() > 0:
 st.markdown("---")
 
 
-st.header("🏫 High School Outreach")
+st.header("High School Outreach")
 
 school_counts = (
     df_f.groupby('SchoolNameClean')
@@ -261,7 +261,7 @@ st.dataframe(school_counts, use_container_width=True, hide_index=True)
 st.markdown("---")
 
 
-st.header("📝 Rep Notes & Insights")
+st.header("Rep Notes & Insights")
 
 insights = df_f[df_f['RepInsights'].notna()][
     ['FirstName','LastName','SchoolNameClean','LeadRank_Clean','AcademicInterest1','RepInsights']
@@ -275,7 +275,7 @@ else:
 st.markdown("---")
 
 
-st.header("⚠️ Flagged Records")
+st.header("Flagged Records")
 
 flagged = df_f[df_f['Flag_GradYear']][
     ['FirstName','LastName','SchoolNameClean','HSGradYear','StudentType','RepInsights']
@@ -289,16 +289,16 @@ else:
 st.markdown("---")
 
 
-st.header("📣 Outreach Recommendations")
+st.header("Outreach Recommendations")
 
 hot_leads = df_f[df_f['LeadRank_Clean'] == 'Hot'][
     ['FirstName','LastName','Email','CellPhone','SchoolNameClean','AcademicInterest1','RepInsights']
 ]
 if not hot_leads.empty:
-    st.markdown("#### 🔥 Hot Leads — Priority Follow-up")
+    st.markdown("#### Hot Leads — Priority Follow-up")
     st.dataframe(hot_leads, use_container_width=True, hide_index=True)
 
-st.markdown("#### 📊 Interest-Based Outreach Targets")
+st.markdown("#### Interest-Based Outreach Targets")
 outreach = (
     df_f.groupby('AcademicInterest1')
          .agg(count=('AttendeeID','count'),
@@ -311,7 +311,7 @@ outreach = (
 outreach['Interest'] = outreach['Interest'].fillna('Not specified')
 st.dataframe(outreach, use_container_width=True, hide_index=True)
 
-st.markdown("#### 📋 Full 2027 Prospect List")
+st.markdown("#### Full 2027 Prospect List")
 show_cols = ['FirstName','LastName','Email','CellPhone','SchoolNameClean',
              'Ethnicity','Gender','AcademicInterest1','StartingTerm',
              'LeadRank_Clean','Contactable','RepInsights']
