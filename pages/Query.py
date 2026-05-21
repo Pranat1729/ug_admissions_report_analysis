@@ -81,11 +81,20 @@ def run_sql_query(df: pd.DataFrame, query: str) -> pd.DataFrame:
     return result
 
 
-def build_filter_panel(df: pd.DataFrame) -> pd.DataFrame:
+def translate_expression_to_sql(expr: str, mapping: Dict[str, str]) -> str:
+    sql_expr = expr
+    for original, safe in sorted(mapping.items(), key=lambda item: -len(item[0])):
+        pattern = r'(?<!\w)' + re.escape(original) + r'(?!\w)'
+        sql_expr = re.sub(pattern, safe, sql_expr)
+    return sql_expr
+
+
+def build_filter_panel(df: pd.DataFrame, sql_mapping: Dict[str, str]) -> Tuple[pd.DataFrame, str]:
     st.write('Add filters block-by-block to narrow the dataset.')
     filtered = df.copy()
     filter_columns = st.multiselect('Select columns to filter', df.columns.tolist())
     query_fragments: List[str] = []
+    sql_fragments: List[str] = []
 
     for col in filter_columns:
         series = df[col]
@@ -131,6 +140,7 @@ def build_filter_panel(df: pd.DataFrame) -> pd.DataFrame:
     )
     if custom_expr:
         query_fragments.append(custom_expr)
+        sql_fragments.append(translate_expression_to_sql(custom_expr, sql_mapping))
 
     if query_fragments:
         combined = ' and '.join(query_fragments)
@@ -140,13 +150,16 @@ def build_filter_panel(df: pd.DataFrame) -> pd.DataFrame:
         except Exception as exc:
             st.error(f'Filter error: {exc}')
             st.write('Filter expression used:', combined)
-
     else:
         st.info('No filters applied. Showing full dataset.')
 
-    return filtered
+    if sql_fragments:
+        sql_where = ' and '.join(sql_fragments)
+        sql_query = f'SELECT * FROM data WHERE {sql_where}'
+    else:
+        sql_query = 'SELECT * FROM data'
 
-
+    return filtered, sql_query
 def render_insights(df: pd.DataFrame, title: str = 'Insights') -> None:
     st.markdown(f'### {title}')
     if df.empty:
@@ -178,6 +191,8 @@ sql_df, sql_mapping = prepare_sql_df(df)
 
 if 'saved_queries' not in st.session_state:
     st.session_state['saved_queries'] = []
+if 'saved_block_queries' not in st.session_state:
+    st.session_state['saved_block_queries'] = []
 if 'sql_query_text' not in st.session_state:
     st.session_state['sql_query_text'] = 'SELECT * FROM data LIMIT 100'
 
@@ -266,10 +281,70 @@ with tabs[0]:
 
 with tabs[1]:
     st.subheader('Block Filtering')
-    filtered_df = build_filter_panel(df)
+    filtered_df, block_sql = build_filter_panel(df, sql_mapping)
+
+    st.markdown('### SQL preview for this block query')
+    st.code(block_sql, language='sql')
     st.divider()
     st.dataframe(filtered_df, use_container_width=True)
     render_insights(filtered_df, title='Filtered subset insights')
+
+    st.markdown('### Saved block queries')
+    if st.session_state['saved_block_queries']:
+        saved_labels = [
+            f"{q['name']} — {q['timestamp']}"
+            for q in st.session_state['saved_block_queries']
+        ]
+        selected_saved = st.selectbox('Load a saved block query', ['', *saved_labels], key='load_saved_block_query')
+
+        col1, col2 = st.columns([1, 1])
+        with col1:
+            if st.button('Run saved block query', key='run_saved_block_query') and selected_saved:
+                index = saved_labels.index(selected_saved)
+                saved_query = st.session_state['saved_block_queries'][index]['query']
+                try:
+                    saved_result = run_sql_query(sql_df, saved_query)
+                    st.success(f'Saved block query returned {len(saved_result):,} rows')
+                    st.dataframe(saved_result, use_container_width=True)
+                    render_insights(saved_result, title='Saved block query insights')
+                    csv = saved_result.to_csv(index=False)
+                    st.download_button(
+                        'Download saved block query result as CSV',
+                        data=csv,
+                        file_name='saved_block_query_results.csv',
+                        mime='text/csv',
+                    )
+                except Exception as exc:
+                    st.error(f'SQL error: {exc}')
+                    st.code(saved_query, language='sql')
+        with col2:
+            if st.button('Delete selected block query', key='delete_saved_block_query') and selected_saved:
+                index = saved_labels.index(selected_saved)
+                st.session_state['saved_block_queries'].pop(index)
+                st.success('Saved block query deleted.')
+                st.experimental_rerun()
+
+        st.write('Saved block query list:')
+        for item in st.session_state['saved_block_queries']:
+            st.write(f"- **{item['name']}** — {item['timestamp']}")
+    else:
+        st.info('No saved block queries yet.')
+
+    save_name = st.text_input('Save current block query as', key='save_block_query_name')
+    if st.button('Save current block query', key='save_block_query'):
+        if block_sql.strip():
+            label = save_name.strip() or f'Block query {len(st.session_state['saved_block_queries']) + 1}'
+            st.session_state['saved_block_queries'].insert(
+                0,
+                {
+                    'name': label,
+                    'query': block_sql,
+                    'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                },
+            )
+            st.success(f'Block query saved as "{label}"')
+        else:
+            st.error('Cannot save an empty block query.')
 
     if not filtered_df.empty:
         csv = filtered_df.to_csv(index=False)
