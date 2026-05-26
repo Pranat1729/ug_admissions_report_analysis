@@ -23,7 +23,10 @@ with st.sidebar:
 
 @st.cache_data
 def load(file_hash, file_bytes):
-    return pd.read_csv(BytesIO(file_bytes))
+    try:
+        return pd.read_csv(BytesIO(file_bytes), encoding='utf-8')
+    except UnicodeDecodeError:
+        return pd.read_csv(BytesIO(file_bytes), encoding='latin-1')
 
 if uploaded_file is not None:
     uploaded_bytes = uploaded_file.read()
@@ -38,10 +41,8 @@ else:
 
 @st.cache_data
 def metrics(df):
-    # Parse ADMIT_TERM_DESCR to extract year and term
     df[['year', 'term']] = df['ADMIT_TERM_DESCR'].str.extract(r'(\d{4})\s+(Fall|Spring)')
     
-    # Dataset 1: Per HS per year (spring + fall combined)
     yearly_metrics = df.groupby(['HS_Name', 'year']).agg(
         admitted_count=('EMPLID', 'count'),
         enrolled_count=('enrolled', lambda x: (x == 'Y').sum()),
@@ -51,7 +52,6 @@ def metrics(df):
     yearly_metrics['yield'] = yearly_metrics['enrolled_count'] / yearly_metrics['admitted_count']
     yearly_metrics['drip'] = yearly_metrics['matriculated_count'] / yearly_metrics['admitted_count']
     
-    # Dataset 2: Term-by-term data
     term_data = df.groupby(['HS_Name', 'year', 'term']).agg(
         admitted_count=('EMPLID', 'count'),
         enrolled_count=('enrolled', lambda x: (x == 'Y').sum()),
@@ -61,30 +61,23 @@ def metrics(df):
     term_data['yield'] = term_data['enrolled_count'] / term_data['admitted_count']
     term_data['drip'] = term_data['matriculated_count'] / term_data['admitted_count']
     
-    # Add semesters_lost (assuming 2 semesters per year from admit year to 2026)
     term_data['semesters_lost'] = (2026 - term_data['year'].astype(int)) * 2
-    
-    # Money lost per term with 30% yield cap
     term_data['money_lost'] = (term_data['admitted_count'] - term_data['enrolled_count']) * 3465 * 0.3 * term_data['semesters_lost']
     
-    # Dataset 3: Overall summary (4-year totals + averaged metrics)
     overall_summary = df.groupby('HS_Name').agg(
         total_admitted=('EMPLID', 'count'),
         total_enrolled=('enrolled', lambda x: (x == 'Y').sum()),
         total_matriculated=('matriculated', lambda x: (x == 'Y').sum()),
     ).reset_index()
     
-    # Average metrics over the years
     avg_metrics = yearly_metrics.groupby('HS_Name')[['yield', 'drip']].mean().reset_index()
     avg_metrics.columns = ['HS_Name', 'avg_yield', 'avg_drip']
     
     overall_summary = overall_summary.merge(avg_metrics, on='HS_Name')
     
-    # Add total money lost per HS
     money_lost_per_hs = term_data.groupby('HS_Name')['money_lost'].sum().reset_index()
     overall_summary = overall_summary.merge(money_lost_per_hs, on='HS_Name')
 
-    # Proxy classification using volume + matriculation quality
     overall_summary['avg_matriculation_rate'] = overall_summary['total_matriculated'] / overall_summary['total_admitted']
 
     vol_thresh = 30
@@ -117,7 +110,6 @@ def metrics(df):
     overall_summary["Recruitment_Category"] = overall_summary.apply(classify_school, axis=1)
     overall_summary["Heat_Label"] = overall_summary.apply(heat_label, axis=1)
     
-    # Save to CSV
     term_data.to_csv('hs_metrics_by_term.csv', index=False)
     overall_summary.to_csv('hs_metrics_overall.csv', index=False)
     
