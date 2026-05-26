@@ -27,7 +27,10 @@ with st.sidebar:
 
 @st.cache_data
 def load_csv(file_bytes):
-    return pd.read_csv(BytesIO(file_bytes))
+    try:
+        return pd.read_csv(BytesIO(file_bytes), encoding='utf-8')
+    except UnicodeDecodeError:
+        return pd.read_csv(BytesIO(file_bytes), encoding='latin-1')
 
 
 @st.cache_data
@@ -160,6 +163,7 @@ def build_filter_panel(df: pd.DataFrame, sql_mapping: Dict[str, str]) -> Tuple[p
         sql_query = 'SELECT * FROM data'
 
     return filtered, sql_query
+
 def render_insights(df: pd.DataFrame, title: str = 'Insights') -> None:
     st.markdown(f'### {title}')
     if df.empty:
@@ -333,7 +337,7 @@ with tabs[1]:
     save_name = st.text_input('Save current block query as', key='save_block_query_name')
     if st.button('Save current block query', key='save_block_query'):
         if block_sql.strip():
-            label = save_name.strip() or f'Block query {len(st.session_state['saved_block_queries']) + 1}'
+            label = save_name.strip() or f'Block query {len(st.session_state["saved_block_queries"]) + 1}'
             st.session_state['saved_block_queries'].insert(
                 0,
                 {
