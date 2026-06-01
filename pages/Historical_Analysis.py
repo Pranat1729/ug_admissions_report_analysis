@@ -17,22 +17,117 @@ st.set_page_config(
 
 with st.sidebar:
     st.header("Dataset Upload")
-    uploaded_file = st.file_uploader("Upload your CSV", type=["csv"])
+    uploaded_file = st.file_uploader("Upload your CSV", type=["csv"], key="csv_upload")
+    dataset_type = st.selectbox(
+        "Dataset type",
+        ["Freshmen", "Transfer"],
+        help="Choose which dataset format to load so the app can map fields consistently."
+    )
     st.markdown("---")
     st.caption("Upload the dataset to refresh the dashboard.")
 
 @st.cache_data
-def load(file_hash, file_bytes):
-    try:
-        return pd.read_csv(BytesIO(file_bytes), encoding='utf-8')
-    except UnicodeDecodeError:
-        return pd.read_csv(BytesIO(file_bytes), encoding='latin-1')
+def normalize_dataset(df, dataset_type):
+    column_mapping = {
+        'ADMIT_TERM_DESCR': [
+            'ADMIT_TERM_DESCR', 'ADMIT_TERM', 'TERM_DESC', 'Admit Term Description',
+            'admit_term_descr', 'AdmitTermDescr', 'TERM_DESCRIPTION'
+        ],
+        'EMPLID': [
+            'EMPLID', 'STUDENT_ID', 'Student_ID', 'Student ID', 'SID', 'STUDENT NUMBER',
+            'STUDENT_NUMBER'
+        ],
+        'enrolled': [
+            'enrolled', 'ENROLLED', 'enrolled_flag', 'Enrolled', 'ENROLLMENT_STATUS',
+            'Enroll', 'ENROLL_STATUS'
+        ],
+        'matriculated': [
+            'matriculated', 'MATRICULATED', 'matriculated_flag', 'Matriculated',
+            'MATRICULATION_STATUS', 'Matriculation'
+        ],
+        'HS_Name': [
+            'HS_Name', 'HS_NAME', 'HS Name', 'High School', 'high_school_name',
+            'High_School', 'high_school', 'HighSchool'
+        ],
+        'ethnicity': [
+            'ethnicity', 'ETHNICITY', 'Ethnicity', 'Ethnic_Group', 'ethnic_group'
+        ],
+        'ACAD_PLAN': [
+            'ACAD_PLAN', 'Acad_Plan', 'ACAD PLAN', 'INTENDED_MAJOR', 'Intended_Major',
+            'intended_major', 'Major', 'Intended Major'
+        ]
+    }
 
+    if dataset_type == 'Transfer':
+        column_mapping['HS_Name'] += ['Current_HS', 'School_Name']
+        column_mapping['enrolled'] += ['Admit_Status', 'Enrollment_Status']
+        column_mapping['matriculated'] += ['Matriculation_Status', 'Matric_Status']
+        column_mapping['ADMIT_TERM_DESCR'] += ['AdmitTerm', 'Term']
+
+    rename_map = {}
+    for standard_name, alternatives in column_mapping.items():
+        for alt_name in alternatives:
+            if alt_name in df.columns:
+                rename_map[alt_name] = standard_name
+                break
+
+    df = df.rename(columns=rename_map)
+
+    for i in range(1, 7):
+        for alt_name in [
+            f'Choice{i}', f'choice{i}', f'CHOICE{i}',
+            f'choice_{i}', f'Choice_{i}', f'choice {i}', f'Choice {i}',
+            f'C{i}', f'Pref{i}', f'pref{i}'
+        ]:
+            if alt_name in df.columns:
+                df = df.rename(columns={alt_name: f'Choice{i}'})
+                break
+
+    if dataset_type == 'Transfer' and 'HS_Name' not in df.columns:
+        if 'LAST_COL_UGRD_DESCR' in df.columns:
+            df['HS_Name'] = df['LAST_COL_UGRD_DESCR']
+        elif 'LAST_COL_UGRD_SYS' in df.columns:
+            df['HS_Name'] = df['LAST_COL_UGRD_SYS']
+        elif 'Coll_City' in df.columns:
+            df['HS_Name'] = df['Coll_City']
+        else:
+            df['HS_Name'] = 'Unknown'
+
+    if 'enrolled' in df.columns:
+        df['enrolled'] = df['enrolled'].astype(str).str.strip().str.upper().replace(
+            {
+                'YES': 'Y', 'YEA': 'Y', 'Y': 'Y', '1': 'Y', 'TRUE': 'Y', 'T': 'Y',
+                'NO': 'N', 'N': 'N', '0': 'N', 'FALSE': 'N', 'F': 'N'
+            }
+        )
+
+    if 'matriculated' in df.columns:
+        df['matriculated'] = df['matriculated'].astype(str).str.strip().str.upper().replace(
+            {
+                'YES': 'Y', 'YEA': 'Y', 'Y': 'Y', '1': 'Y', 'TRUE': 'Y', 'T': 'Y',
+                'NO': 'N', 'N': 'N', '0': 'N', 'FALSE': 'N', 'F': 'N'
+            }
+        )
+
+    return df
+
+@st.cache_data
+def load(file_hash, file_bytes, dataset_type):
+    df = pd.read_csv(BytesIO(file_bytes))
+    return normalize_dataset(df, dataset_type)
+
+uploaded_bytes = None
 if uploaded_file is not None:
     uploaded_bytes = uploaded_file.read()
+    st.session_state["uploaded_file_bytes"] = uploaded_bytes
+    st.session_state["uploaded_file_name"] = uploaded_file.name
+elif st.session_state.get("uploaded_file_bytes") is not None:
+    uploaded_bytes = st.session_state["uploaded_file_bytes"]
+    st.sidebar.success(f"Loaded dataset: {st.session_state.get('uploaded_file_name', 'uploaded dataset')}")
+
+if uploaded_bytes is not None:
     file_hash = hashlib.md5(uploaded_bytes).hexdigest()
-    df = load(file_hash, uploaded_bytes)
-    uploaded_file.seek(0)
+    df = load(file_hash, uploaded_bytes, dataset_type)
 else:
     st.sidebar.warning("Please upload a CSV file to proceed.")
     st.title("High School Recruitment Analytics")
@@ -41,8 +136,10 @@ else:
 
 @st.cache_data
 def metrics(df):
+    # Parse ADMIT_TERM_DESCR to extract year and term
     df[['year', 'term']] = df['ADMIT_TERM_DESCR'].str.extract(r'(\d{4})\s+(Fall|Spring)')
     
+    # Dataset 1: Per HS per year (spring + fall combined)
     yearly_metrics = df.groupby(['HS_Name', 'year']).agg(
         admitted_count=('EMPLID', 'count'),
         enrolled_count=('enrolled', lambda x: (x == 'Y').sum()),
@@ -52,6 +149,7 @@ def metrics(df):
     yearly_metrics['yield'] = yearly_metrics['enrolled_count'] / yearly_metrics['admitted_count']
     yearly_metrics['drip'] = yearly_metrics['matriculated_count'] / yearly_metrics['admitted_count']
     
+    # Dataset 2: Term-by-term data
     term_data = df.groupby(['HS_Name', 'year', 'term']).agg(
         admitted_count=('EMPLID', 'count'),
         enrolled_count=('enrolled', lambda x: (x == 'Y').sum()),
@@ -61,23 +159,30 @@ def metrics(df):
     term_data['yield'] = term_data['enrolled_count'] / term_data['admitted_count']
     term_data['drip'] = term_data['matriculated_count'] / term_data['admitted_count']
     
+    # Add semesters_lost (assuming 2 semesters per year from admit year to 2026)
     term_data['semesters_lost'] = (2026 - term_data['year'].astype(int)) * 2
+    
+    # Money lost per term with 30% yield cap
     term_data['money_lost'] = (term_data['admitted_count'] - term_data['enrolled_count']) * 3465 * 0.3 * term_data['semesters_lost']
     
+    # Dataset 3: Overall summary (4-year totals + averaged metrics)
     overall_summary = df.groupby('HS_Name').agg(
         total_admitted=('EMPLID', 'count'),
         total_enrolled=('enrolled', lambda x: (x == 'Y').sum()),
         total_matriculated=('matriculated', lambda x: (x == 'Y').sum()),
     ).reset_index()
     
+    # Average metrics over the years
     avg_metrics = yearly_metrics.groupby('HS_Name')[['yield', 'drip']].mean().reset_index()
     avg_metrics.columns = ['HS_Name', 'avg_yield', 'avg_drip']
     
     overall_summary = overall_summary.merge(avg_metrics, on='HS_Name')
     
+    # Add total money lost per HS
     money_lost_per_hs = term_data.groupby('HS_Name')['money_lost'].sum().reset_index()
     overall_summary = overall_summary.merge(money_lost_per_hs, on='HS_Name')
 
+    # Proxy classification using volume + matriculation quality
     overall_summary['avg_matriculation_rate'] = overall_summary['total_matriculated'] / overall_summary['total_admitted']
 
     vol_thresh = 30
@@ -110,6 +215,7 @@ def metrics(df):
     overall_summary["Recruitment_Category"] = overall_summary.apply(classify_school, axis=1)
     overall_summary["Heat_Label"] = overall_summary.apply(heat_label, axis=1)
     
+    # Save to CSV
     term_data.to_csv('hs_metrics_by_term.csv', index=False)
     overall_summary.to_csv('hs_metrics_overall.csv', index=False)
     
@@ -193,7 +299,7 @@ with tab_overview:
     st.dataframe(term_data, use_container_width=True)
 
 with tab_trends:
-    st.subheader('Enrollment trends by high school')
+    st.subheader('Application & Enrollment Trends by High School')
     hs_names = sorted(overall_summary['HS_Name'].dropna().unique())
     selected_hs_trends = st.selectbox('Select high school for trend analysis', hs_names)
     hs_term_data = term_data[term_data['HS_Name'] == selected_hs_trends].copy()
@@ -202,13 +308,167 @@ with tab_trends:
     else:
         hs_term_data['year'] = pd.to_numeric(hs_term_data['year'], errors='coerce')
         hs_term_data = hs_term_data.sort_values(['year', 'term'])
-        trend_chart = alt.Chart(hs_term_data).mark_line(point=True).encode(
+        
+        # Calculate academic year totals for enrollment (Spring + Fall per year)
+        yearly_enrollment = hs_term_data.groupby('year')['enrolled_count'].sum().reset_index()
+        yearly_enrollment.columns = ['year', 'total_enrolled']
+        yearly_enrollment = yearly_enrollment.sort_values('year')
+        yearly_enrollment['pct_change'] = yearly_enrollment['total_enrolled'].pct_change() * 100
+        yearly_enrollment['direction'] = yearly_enrollment['pct_change'].apply(lambda x: 'ahead' if x >= 0 else 'dip')
+        yearly_enrollment['prev_enrolled'] = yearly_enrollment['total_enrolled'].shift(1)
+        
+        # Calculate academic year totals for applicants (Spring + Fall per year)
+        hs_applicants = df[df['HS_Name'] == selected_hs_trends].copy()
+        hs_applicants['year'] = hs_applicants['ADMIT_TERM_DESCR'].str.extract(r'(\d{4})')
+        hs_applicants['term'] = hs_applicants['ADMIT_TERM_DESCR'].str.extract(r'(Fall|Spring)')
+        
+        yearly_applicants = hs_applicants.groupby('year')['EMPLID'].count().reset_index()
+        yearly_applicants.columns = ['year', 'total_applicants']
+        yearly_applicants = yearly_applicants.sort_values('year')
+        yearly_applicants['pct_change'] = yearly_applicants['total_applicants'].pct_change() * 100
+        yearly_applicants['direction'] = yearly_applicants['pct_change'].apply(lambda x: 'ahead' if x >= 0 else 'dip')
+        yearly_applicants['prev_applicants'] = yearly_applicants['total_applicants'].shift(1)
+        
+        term_applicants = hs_applicants.groupby(['year', 'term'])['EMPLID'].count().reset_index()
+        term_applicants.columns = ['year', 'term', 'applicant_count']
+        
+        # Display Applicant Trends
+        st.markdown('### **Applicant Trends (Spring + Fall Combined)**')
+        metrics_data_app = yearly_applicants[yearly_applicants['pct_change'].notna()].copy()
+        if len(metrics_data_app) > 0:
+            cols = st.columns(len(metrics_data_app))
+            for idx, (_, row) in enumerate(metrics_data_app.iterrows()):
+                with cols[idx]:
+                    pct_text = f"{row['pct_change']:.1f}% {row['direction'].upper()}"
+                    st.metric(
+                        label=f"{int(row['year'])} YoY Change",
+                        value=pct_text,
+                        delta=f"{int(row['total_applicants'] - row['prev_applicants']):+d} applicants"
+                    )
+        
+        st.dataframe(yearly_applicants[['year', 'total_applicants', 'pct_change', 'direction']], 
+                     use_container_width=True, hide_index=True)
+        
+        # Applicant Year Trend Chart
+        yearly_applicants_chart = yearly_applicants[['year', 'total_applicants']].copy()
+        yearly_applicants_chart['year'] = yearly_applicants_chart['year'].astype(str)
+        
+        app_year_chart = alt.Chart(yearly_applicants_chart).mark_line(point=True).encode(
+            x=alt.X('year:O', title='Academic Year'),
+            y=alt.Y('total_applicants:Q', title='Total Applicants (Spring + Fall)'),
+            tooltip=['year:O', 'total_applicants:Q']
+        ).properties(width=800, height=420, title='Applicants by Academic Year')
+        st.altair_chart(app_year_chart, use_container_width=True)
+        
+        # Applicant Term-by-term Chart
+        st.subheader('Applicants: Term-by-term breakdown')
+        term_applicants_chart = term_applicants.copy()
+        term_applicants_chart['year'] = term_applicants_chart['year'].astype(str)
+        
+        app_term_chart = alt.Chart(term_applicants_chart).mark_line(point=True).encode(
+            x=alt.X('year:O', title='Year'),
+            y=alt.Y('applicant_count:Q', title='Applicant count'),
+            color=alt.Color('term:N', title='Term'),
+            tooltip=['year:O', 'term:N', 'applicant_count:Q']
+        ).properties(width=800, height=420)
+        st.altair_chart(app_term_chart, use_container_width=True)
+        
+        # Display Enrollment Trends
+        st.markdown('### **Enrollment Trends (Spring + Fall Combined)**')
+        metrics_data_enroll = yearly_enrollment[yearly_enrollment['pct_change'].notna()].copy()
+        if len(metrics_data_enroll) > 0:
+            cols = st.columns(len(metrics_data_enroll))
+            for idx, (_, row) in enumerate(metrics_data_enroll.iterrows()):
+                with cols[idx]:
+                    pct_text = f"{row['pct_change']:.1f}% {row['direction'].upper()}"
+                    st.metric(
+                        label=f"{int(row['year'])} YoY Change",
+                        value=pct_text,
+                        delta=f"{int(row['total_enrolled'] - row['prev_enrolled']):+d} enrolled"
+                    )
+        
+        st.dataframe(yearly_enrollment[['year', 'total_enrolled', 'pct_change', 'direction']], 
+                     use_container_width=True, hide_index=True)
+        
+        # Enrollment Year Trend Chart
+        yearly_enrollment_chart = yearly_enrollment[['year', 'total_enrolled']].copy()
+        yearly_enrollment_chart['year'] = yearly_enrollment_chart['year'].astype(str)
+        
+        enroll_year_chart = alt.Chart(yearly_enrollment_chart).mark_line(point=True).encode(
+            x=alt.X('year:O', title='Academic Year'),
+            y=alt.Y('total_enrolled:Q', title='Total Enrolled (Spring + Fall)'),
+            tooltip=['year:O', 'total_enrolled:Q']
+        ).properties(width=800, height=420, title='Enrollment by Academic Year')
+        st.altair_chart(enroll_year_chart, use_container_width=True)
+        
+        # Enrollment Term-by-term Chart
+        st.subheader('Enrollment: Term-by-term breakdown')
+        hs_term_data_chart = hs_term_data[['year', 'term', 'enrolled_count']].copy()
+        hs_term_data_chart['year'] = hs_term_data_chart['year'].astype(str)
+        
+        enroll_term_chart = alt.Chart(hs_term_data_chart).mark_line(point=True).encode(
             x=alt.X('year:O', title='Year'),
             y=alt.Y('enrolled_count:Q', title='Enrolled count'),
             color=alt.Color('term:N', title='Term'),
             tooltip=['year:O', 'term:N', 'enrolled_count:Q']
         ).properties(width=800, height=420)
-        st.altair_chart(trend_chart, use_container_width=True)
+        st.altair_chart(enroll_term_chart, use_container_width=True)
+        
+        # Comparative Analysis & Conclusions
+        st.markdown('### **Comparative Analysis & Conclusions**')
+        
+        # Merge data for comparison
+        comparison_df = yearly_applicants[['year', 'total_applicants', 'pct_change']].copy()
+        comparison_df.columns = ['year', 'total_applicants', 'applicant_pct_change']
+        comparison_df['year'] = comparison_df['year'].astype(int)
+        
+        enrollment_for_merge = yearly_enrollment[['year', 'total_enrolled', 'pct_change']].copy()
+        enrollment_for_merge['year'] = enrollment_for_merge['year'].astype(int)
+        
+        comparison_df = comparison_df.merge(
+            enrollment_for_merge,
+            on='year'
+        )
+        comparison_df.columns = ['year', 'total_applicants', 'applicant_pct_change', 'total_enrolled', 'enrollment_pct_change']
+        
+        # Calculate conversion rate
+        comparison_df['conversion_rate'] = (comparison_df['total_enrolled'] / comparison_df['total_applicants'] * 100).round(2)
+        
+        st.dataframe(comparison_df, use_container_width=True, hide_index=True)
+        
+        # Generate insights
+        st.subheader('Key Insights')
+        
+        latest_year_idx = len(comparison_df) - 1
+        if latest_year_idx > 0:
+            latest_row = comparison_df.iloc[latest_year_idx]
+            prev_row = comparison_df.iloc[latest_year_idx - 1]
+            
+            insights = []
+            
+            app_trend = "increased" if latest_row['applicant_pct_change'] >= 0 else "decreased"
+            enroll_trend = "increased" if latest_row['enrollment_pct_change'] >= 0 else "decreased"
+            
+            if latest_row['applicant_pct_change'] >= 0 and latest_row['enrollment_pct_change'] >= 0:
+                insights.append(f"✅ **Positive trajectory**: Both applications ({latest_row['applicant_pct_change']:.1f}%) and enrollments ({latest_row['enrollment_pct_change']:.1f}%) are growing.")
+            elif latest_row['applicant_pct_change'] < 0 and latest_row['enrollment_pct_change'] < 0:
+                insights.append(f"⚠️ **Concerning trend**: Both applications ({latest_row['applicant_pct_change']:.1f}%) and enrollments ({latest_row['enrollment_pct_change']:.1f}%) are declining.")
+            elif latest_row['applicant_pct_change'] >= 0 and latest_row['enrollment_pct_change'] < 0:
+                insights.append(f"📊 **Conversion issue**: Applications are up ({latest_row['applicant_pct_change']:.1f}%) but enrollments are down ({latest_row['enrollment_pct_change']:.1f}%) - conversion rate may be declining.")
+            elif latest_row['applicant_pct_change'] < 0 and latest_row['enrollment_pct_change'] >= 0:
+                insights.append(f"📈 **Strong conversion**: Despite fewer applications ({latest_row['applicant_pct_change']:.1f}%), enrollment is up ({latest_row['enrollment_pct_change']:.1f}%) - higher conversion efficiency.")
+            
+            current_conversion = latest_row['conversion_rate']
+            prev_conversion = prev_row['conversion_rate']
+            conversion_change = current_conversion - prev_conversion
+            
+            if conversion_change > 0:
+                insights.append(f"📈 **Improved conversion**: Conversion rate increased from {prev_conversion:.1f}% to {current_conversion:.1f}%.")
+            elif conversion_change < 0:
+                insights.append(f"📉 **Declining conversion**: Conversion rate decreased from {prev_conversion:.1f}% to {current_conversion:.1f}%.")
+            
+            for insight in insights:
+                st.info(insight)
 
 with tab_recruit:
     st.subheader('Recruitment and money loss')
@@ -368,3 +628,6 @@ with tab_details:
                     })
                 )
                 st.dataframe(summary_table, use_container_width=True)
+
+
+
