@@ -413,6 +413,14 @@ with tab_trends:
             tooltip=['year:O', 'term:N', 'enrolled_count:Q']
         ).properties(width=800, height=420)
         st.altair_chart(enroll_term_chart, use_container_width=True)
+
+        st.markdown(
+            """
+            **How to read the last chart:** this chart shows enrollment counts for each term (Spring and Fall) across academic years.
+            A rising line means that more students enrolled in that term compared to previous years, while a falling line means enrollment dropped.
+            Use it together with the combined year totals above to see whether changes are driven by one term or by both terms.
+            """
+        )
         
         # Comparative Analysis & Conclusions
         st.markdown('### **Comparative Analysis & Conclusions**')
@@ -583,6 +591,14 @@ with tab_details:
         if lost_df.empty:
             st.warning(f'No lost students found for {selected_hs_lost}.')
         else:
+            st.markdown(
+                """
+                **How to read the lost-student chart:** this chart shows the number of students who did not enroll
+                after being admitted, grouped by their first choice school and their intended academic plan.
+                A taller bar means more lost students selected that first choice and intended that major, which helps
+                identify which programs or schools are losing the most admitted students.
+                """
+            )
             first_choice_col = 'Choice1' if 'Choice1' in df.columns else 'choice1' if 'choice1' in df.columns else None
             major_col = 'ACAD_PLAN' if 'ACAD_PLAN' in df.columns else None
             if first_choice_col is None:
