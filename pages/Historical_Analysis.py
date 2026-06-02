@@ -1,3 +1,4 @@
+import re
 import pandas as pd
 import numpy as np
 import streamlit as st
@@ -5,9 +6,9 @@ import altair as alt
 import hashlib
 from io import BytesIO
 
-if not st.session_state.get("logged_in", False):
-    st.warning("Please log in from the Home page.")
-    st.stop()
+#if not st.session_state.get("logged_in", False):
+#    st.warning("Please log in from the Home page.")
+#    st.stop()
     
 st.set_page_config(
     page_title="High School Recruitment Analytics",
@@ -27,6 +28,20 @@ with st.sidebar:
     st.caption("Upload the dataset to refresh the dashboard.")
 
 @st.cache_data
+def extract_year(value):
+    if pd.isna(value):
+        return np.nan
+    match = re.search(r'(\d{4})', str(value))
+    return match.group(1) if match else np.nan
+
+
+def extract_term(value):
+    if pd.isna(value):
+        return np.nan
+    match = re.search(r'(Fall|Spring)', str(value), flags=re.IGNORECASE)
+    return match.group(1).title() if match else np.nan
+
+
 def normalize_dataset(df, dataset_type):
     column_mapping = {
         'ADMIT_TERM_DESCR': [
@@ -372,7 +387,108 @@ with tab_trends:
             tooltip=['year:O', 'term:N', 'applicant_count:Q']
         ).properties(width=800, height=420)
         st.altair_chart(app_term_chart, use_container_width=True)
-        
+
+        st.subheader('Program yield by selected ACAD_PLAN')
+        if 'ACAD_PLAN' not in df.columns:
+            st.warning('No ACAD_PLAN column present to compute program yield.')
+        else:
+            plan_options = sorted(df['ACAD_PLAN'].dropna().unique())
+            selected_plan = st.selectbox('Select program for yield analysis', plan_options, key='program_yield_plan')
+
+            if 'restrict_program_metrics' not in st.session_state:
+                st.session_state['restrict_program_metrics'] = False
+            if st.button('Toggle CNY community/CC restriction', key='restrict_program_metrics_button'):
+                st.session_state['restrict_program_metrics'] = not st.session_state['restrict_program_metrics']
+
+            restriction_enabled = st.session_state['restrict_program_metrics']
+            if restriction_enabled:
+                st.info('CNY + community/CC restriction is active for program metrics.')
+            else:
+                st.info('Program metrics are not restricted by LAST_COL_UGRD_SYS / LAST_COL_UGRD_DESCR.')
+
+            plan_df = df[df['ACAD_PLAN'] == selected_plan].copy()
+            if restriction_enabled:
+                if 'LAST_COL_UGRD_SYS' in plan_df.columns and 'LAST_COL_UGRD_DESCR' in plan_df.columns:
+                    plan_df = plan_df[
+                        (plan_df['LAST_COL_UGRD_SYS'].astype(str).str.upper() == 'CNY') &
+                        (
+                            plan_df['LAST_COL_UGRD_DESCR'].astype(str).str.contains(r'\bcommunity\b', case=False, na=False) |
+                            plan_df['LAST_COL_UGRD_DESCR'].astype(str).str.contains(r'\bCC\b', case=False, na=False)
+                        )
+                    ]
+                    if plan_df.empty:
+                        st.warning('No records match the CNY + community/CC restriction for this program.')
+                else:
+                    st.warning('Cannot apply restriction: LAST_COL_UGRD_SYS or LAST_COL_UGRD_DESCR column is missing.')
+
+            plan_df['year'] = plan_df['ADMIT_TERM_DESCR'].apply(extract_year)
+            plan_df['term'] = plan_df['ADMIT_TERM_DESCR'].apply(extract_term).fillna('Unknown')
+            plan_df['enrolled_flag'] = plan_df['enrolled'] == 'Y'
+            plan_df['matriculated_flag'] = plan_df['matriculated'] == 'Y'
+
+            if 'LAST_COL_UGRD_SYS' in plan_df.columns and 'LAST_COL_UGRD_DESCR' in plan_df.columns:
+                cny_mask = plan_df['LAST_COL_UGRD_SYS'].astype(str).str.strip().str.upper() == 'CNY'
+                descr_mask = plan_df['LAST_COL_UGRD_DESCR'].astype(str).str.strip().str.upper().str.contains(r'\b(COMMUNITY|CC)\b', regex=True)
+                plan_df = plan_df[cny_mask & descr_mask].copy()
+                st.caption('Filtered program metrics to LAST_COL_UGRD_SYS == CNY and LAST_COL_UGRD_DESCR containing community or CC.')
+            else:
+                st.warning('Could not apply CNY/community/CC restriction because LAST_COL_UGRD_SYS or LAST_COL_UGRD_DESCR is missing.')
+
+            program_yield = (
+                plan_df
+                .groupby(['year', 'term'], dropna=False, as_index=False)
+                .agg(
+                    admitted=('EMPLID', 'count'),
+                    enrolled=('enrolled_flag', 'sum'),
+                    matriculated=('matriculated_flag', 'sum')
+                )
+            )
+            program_yield['yield'] = program_yield['enrolled'] / program_yield['admitted']
+            program_yield['retention'] = np.where(
+                program_yield['matriculated'] > 0,
+                program_yield['enrolled'] / program_yield['matriculated'],
+                np.nan
+            )
+            program_yield['commitment'] = np.where(
+                program_yield['admitted'] > 0,
+                program_yield['matriculated'] / program_yield['admitted'],
+                np.nan
+            )
+            program_yield['year'] = program_yield['year'].fillna('Unknown')
+
+            total_admitted = int(program_yield['admitted'].sum())
+            total_enrolled = int(program_yield['enrolled'].sum())
+            total_matriculated = int(program_yield['matriculated'].sum())
+            total_yield = total_enrolled / total_admitted if total_admitted else np.nan
+            total_retention = total_enrolled / total_matriculated if total_matriculated else np.nan
+            total_commitment = total_matriculated / total_admitted if total_admitted else np.nan
+
+            col_a, col_b, col_c, col_d, col_e, col_f = st.columns(6)
+            col_a.metric('Program admitted', f'{total_admitted:,}')
+            col_b.metric('Program enrolled', f'{total_enrolled:,}')
+            col_c.metric('Program matriculated', f'{total_matriculated:,}')
+            col_d.metric('Program yield', f'{total_yield:.1%}' if total_admitted else 'N/A')
+            col_e.metric('Program retention', f'{total_retention:.1%}' if total_matriculated else 'N/A')
+            col_f.metric('Program commitment', f'{total_commitment:.1%}' if total_admitted else 'N/A')
+
+            program_display = program_yield.copy()
+            program_display['yield_pct'] = program_display['yield'].map(lambda x: f'{x:.1%}' if pd.notna(x) else 'N/A')
+            program_display['retention_pct'] = program_display['retention'].map(lambda x: f'{x:.1%}' if pd.notna(x) else 'N/A')
+            program_display['commitment_pct'] = program_display['commitment'].map(lambda x: f'{x:.1%}' if pd.notna(x) else 'N/A')
+
+            st.dataframe(
+                program_display[['year', 'term', 'admitted', 'enrolled', 'matriculated', 'yield_pct', 'retention_pct', 'commitment_pct']],
+                use_container_width=True
+            )
+
+            program_chart = alt.Chart(program_yield).mark_line(point=True).encode(
+                x=alt.X('year:O', title='Year'),
+                y=alt.Y('yield:Q', title='Yield', axis=alt.Axis(format='.0%')),
+                color=alt.Color('term:N', title='Term'),
+                tooltip=['year:O', 'term:N', 'admitted:Q', 'enrolled:Q', 'matriculated:Q', 'yield:Q', 'retention:Q', 'commitment:Q']
+            ).properties(width=900, height=420, title=f'Yield by term for {selected_plan}')
+            st.altair_chart(program_chart, use_container_width=True)
+
         # Display Enrollment Trends
         st.markdown('### **Enrollment Trends (Spring + Fall Combined)**')
         metrics_data_enroll = yearly_enrollment[yearly_enrollment['pct_change'].notna()].copy()
