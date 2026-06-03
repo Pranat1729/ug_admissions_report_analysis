@@ -6,9 +6,9 @@ import altair as alt
 import hashlib
 from io import BytesIO
 
-#if not st.session_state.get("logged_in", False):
-#    st.warning("Please log in from the Home page.")
-#    st.stop()
+if not st.session_state.get("logged_in", False):
+    st.warning("Please log in from the Home page.")
+    st.stop()
     
 st.set_page_config(
     page_title="High School Recruitment Analytics",
