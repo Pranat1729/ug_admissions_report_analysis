@@ -412,8 +412,8 @@ with tab_trends:
                     plan_df = plan_df[
                         (plan_df['LAST_COL_UGRD_SYS'].astype(str).str.upper() == 'CNY') &
                         (
-                            plan_df['LAST_COL_UGRD_DESCR'].astype(str).str.contains(r'\bcommunity\b', case=False, na=False) |
-                            plan_df['LAST_COL_UGRD_DESCR'].astype(str).str.contains(r'\bCC\b', case=False, na=False)
+                            plan_df['LAST_COL_UGRD_DESCR'].astype(str).str.contains('community', case=False, na=False) |
+                            plan_df['LAST_COL_UGRD_DESCR'].astype(str).str.contains('CC', case=False, na=False)
                         )
                     ]
                     if plan_df.empty:
@@ -425,14 +425,6 @@ with tab_trends:
             plan_df['term'] = plan_df['ADMIT_TERM_DESCR'].apply(extract_term).fillna('Unknown')
             plan_df['enrolled_flag'] = plan_df['enrolled'] == 'Y'
             plan_df['matriculated_flag'] = plan_df['matriculated'] == 'Y'
-
-            if 'LAST_COL_UGRD_SYS' in plan_df.columns and 'LAST_COL_UGRD_DESCR' in plan_df.columns:
-                cny_mask = plan_df['LAST_COL_UGRD_SYS'].astype(str).str.strip().str.upper() == 'CNY'
-                descr_mask = plan_df['LAST_COL_UGRD_DESCR'].astype(str).str.strip().str.upper().str.contains(r'\b(COMMUNITY|CC)\b', regex=True)
-                plan_df = plan_df[cny_mask & descr_mask].copy()
-                st.caption('Filtered program metrics to LAST_COL_UGRD_SYS == CNY and LAST_COL_UGRD_DESCR containing community or CC.')
-            else:
-                st.warning('Could not apply CNY/community/CC restriction because LAST_COL_UGRD_SYS or LAST_COL_UGRD_DESCR is missing.')
 
             program_yield = (
                 plan_df
