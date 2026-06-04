@@ -6,9 +6,9 @@ import altair as alt
 import hashlib
 from io import BytesIO
 
-if not st.session_state.get("logged_in", False):
-    st.warning("Please log in from the Home page.")
-    st.stop()
+#if not st.session_state.get("logged_in", False):
+#    st.warning("Please log in from the Home page.")
+#    st.stop()
     
 st.set_page_config(
     page_title="High School Recruitment Analytics",
@@ -22,8 +22,17 @@ with st.sidebar:
     dataset_type = st.selectbox(
         "Dataset type",
         ["Freshmen", "Transfer"],
+        index=0 if st.session_state.get("dataset_type", "Freshmen") == "Freshmen" else 1,
+        key="dataset_type",
         help="Choose which dataset format to load so the app can map fields consistently."
     )
+    if st.session_state.get("uploaded_file_name"):
+        st.markdown(f"**Current dataset:** {st.session_state['uploaded_file_name']}")
+    if st.button("Clear uploaded dataset", key="clear_dataset"):
+        for key in ["uploaded_file_bytes", "uploaded_file_name", "dataset_type", "uploaded_file_hash"]:
+            if key in st.session_state:
+                del st.session_state[key]
+        st.experimental_rerun()
     st.markdown("---")
     st.caption("Upload the dataset to refresh the dashboard.")
 
@@ -136,9 +145,12 @@ if uploaded_file is not None:
     uploaded_bytes = uploaded_file.read()
     st.session_state["uploaded_file_bytes"] = uploaded_bytes
     st.session_state["uploaded_file_name"] = uploaded_file.name
+    st.session_state["dataset_type"] = dataset_type
 elif st.session_state.get("uploaded_file_bytes") is not None:
     uploaded_bytes = st.session_state["uploaded_file_bytes"]
+    dataset_type = st.session_state.get("dataset_type", dataset_type)
     st.sidebar.success(f"Loaded dataset: {st.session_state.get('uploaded_file_name', 'uploaded dataset')}")
+    st.sidebar.write(f"Using saved dataset type: **{dataset_type}**")
 
 if uploaded_bytes is not None:
     file_hash = hashlib.md5(uploaded_bytes).hexdigest()
