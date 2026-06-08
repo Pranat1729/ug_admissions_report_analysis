@@ -29,10 +29,10 @@ with st.sidebar:
     if st.session_state.get("uploaded_file_name"):
         st.markdown(f"**Current dataset:** {st.session_state['uploaded_file_name']}")
     if st.button("Clear uploaded dataset", key="clear_dataset"):
+        
         for key in ["uploaded_file_bytes", "uploaded_file_name", "dataset_type", "uploaded_file_hash"]:
             if key in st.session_state:
                 del st.session_state[key]
-        st.experimental_rerun()
     st.markdown("---")
     st.caption("Upload the dataset to refresh the dashboard.")
 
@@ -145,7 +145,6 @@ if uploaded_file is not None:
     uploaded_bytes = uploaded_file.read()
     st.session_state["uploaded_file_bytes"] = uploaded_bytes
     st.session_state["uploaded_file_name"] = uploaded_file.name
-    st.session_state["dataset_type"] = dataset_type
 elif st.session_state.get("uploaded_file_bytes") is not None:
     uploaded_bytes = st.session_state["uploaded_file_bytes"]
     dataset_type = st.session_state.get("dataset_type", dataset_type)
